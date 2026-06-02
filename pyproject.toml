@@ -1,0 +1,112 @@
+[project]
+name = "llmops-agent"
+version = "0.1.0"
+description = "Reference Python agent for the LLMOps.Pro sovereign-AI substrate. Consumes the five MCP servers (nwc-mcp, nostr-ops-mcp, marketplace-mcp, albyhub-admin-mcp, paywall-mcp) and demonstrates the agent-pays-paid-MCP loop end-to-end. Ollama-first, API-pluggable. Built on pydantic-ai — no LangChain. MIT."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "LLMOps.Pro", email = "sovereigncitizens@getalby.com" },
+]
+requires-python = ">=3.11"
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "lightning",
+    "nwc",
+    "nip-47",
+    "nostr",
+    "ai-agent",
+    "claude",
+    "ollama",
+    "pydantic-ai",
+    "sovereign-ai",
+    "bitcoin",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    # Orchestration. pydantic-ai brings pydantic v2 + MCPServerStdio.
+    # Pin to the v1 line: the agent uses v1 APIs (pydantic_ai.mcp.MCPServerStdio,
+    # the process_tool_call hook), and v2 renames MCPServerStdio -> MCPToolset.
+    "pydantic-ai>=1.0,<2",
+    # CLI. typer brings click underneath; rich auto-installed.
+    "typer>=0.12.0",
+    # Settings/env management. Sits alongside pydantic-ai's bundled pydantic v2.
+    "pydantic-settings>=2.4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/llmops-pro/llmops-agent"
+Repository = "https://github.com/llmops-pro/llmops-agent"
+Issues = "https://github.com/llmops-pro/llmops-agent/issues"
+"NOSTR (zap / DM)" = "https://njump.me/npub1hdg932jvwc3jdvkqywgqv0ue4nn60exrf92asy8mtazt3hjg7d2s2yw0nw"
+
+[project.scripts]
+llmops-agent = "llmops_agent.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "mypy>=1.10.0",
+    "ruff>=0.6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.9,<0.10.0"]
+build-backend = "uv_build"
+
+# ---- Tool configuration --------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "E501",   # line-length handled by formatter
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_return_any = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["pydantic_ai.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
