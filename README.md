@@ -8,6 +8,18 @@ Ollama-first, API-pluggable. Built on [`pydantic-ai`](https://ai.pydantic.dev) �
 
 ---
 
+## Install
+
+```bash
+pipx install llmops-agent          # recommended: isolated CLI
+# or:  uvx --from llmops-agent llmops-agent --help
+# or:  pip install llmops-agent
+```
+
+The five MCP servers it drives are launched on demand via `npx -y` — no separate install. You need Python 3.11+, an NWC-compatible wallet (e.g. Alby Hub), and an LLM backend (see [Usage](#usage)).
+
+---
+
 ## Status
 
 | Layer | State |
@@ -21,7 +33,7 @@ Ollama-first, API-pluggable. Built on [`pydantic-ai`](https://ai.pydantic.dev) �
 | `agent.py` — Pydantic AI agent + `process_tool_call` middleware | ✅ Done |
 | `workflows/research.py` — self-paying research workflow | ✅ Done |
 | `cli.py` — typer entry-point with `ask` / `doctor` / `budget` / `audit` / `config-print` / `version` | ✅ Done |
-| Live LLM smoke test against Ollama / Anthropic | ⏳ User-driven (needs the LLM backend running) |
+| Live LLM smoke test (Anthropic Haiku) | ✅ Done — end-to-end `ask` returns a real `nwc_get_balance` receipt with all 37 substrate tools loaded |
 
 ## Usage
 
@@ -32,11 +44,18 @@ uv run llmops-agent version
 uv run llmops-agent budget                # snapshot, no LLM needed
 uv run llmops-agent config-print          # effective config, secrets masked
 uv run llmops-agent doctor                # ping each configured MCP server
-uv run llmops-agent ask "What time is it?"   # the main demo loop
+uv run llmops-agent ask "What's my Lightning wallet balance?"   # the main demo loop
 uv run llmops-agent audit --tail 20       # recent audit entries
 ```
 
-`ask` requires a working LLM backend. Default is Ollama at `localhost:11434/v1` with model `qwen3:8b`. Override via `LLMOPS_MODEL` env var (e.g. `anthropic:claude-haiku-4-5-20251001`).
+Or run the whole sequence with the bundled script: `./smoke.sh` (full run — the `ask` is read-only, so it can never move sats) or `./smoke.sh --no-ask` (skip the LLM call entirely).
+
+`ask` requires a working LLM backend, set via `LLMOPS_MODEL`:
+
+- **`anthropic:claude-haiku-4-5-20251001`** (or any Anthropic/OpenAI model) — fast, reliable tool-calling. Set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) in `~/.llmops-agent/.env`. Recommended for most setups.
+- **`ollama:<model>`** — fully local, no KYC, no phone-home (the sovereignty default). Needs Ollama at `localhost:11434`. Reality check: a 37-tool agent loop wants real hardware — a small model on a CPU-only box is too slow to be practical. Run Ollama on a GPU, or use a hosted model and keep your wallet + keys local (the trust boundary that actually matters).
+
+Provider creds in `~/.llmops-agent/.env` are loaded automatically — no need to `export` them.
 
 ---
 
