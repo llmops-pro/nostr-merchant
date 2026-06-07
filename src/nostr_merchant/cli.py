@@ -26,7 +26,7 @@ from . import __version__
 from .budget import BudgetTracker
 from .config import AgentConfig
 from .mcp_servers import doctor_check
-from .workflows.engagement import run_inbox
+from .workflows.engagement import _post_replies, run_inbox
 from .workflows.research import run_research
 
 app = typer.Typer(
@@ -151,18 +151,27 @@ def inbox(
         int,
         typer.Option("--limit", "-l", help="Max inbound items to triage."),
     ] = 20,
+    post: Annotated[
+        bool,
+        typer.Option("--post", help="Interactively approve + publish replies (default: read-only)."),
+    ] = False,
 ) -> None:
     """Triage replies/mentions on your recent NOSTR posts and draft responses.
 
-    READ-ONLY: the agent is restricted to nostr-ops-mcp's read tools, so it cannot
-    publish — it produces a review queue of drafts. You post the approved ones yourself.
+    Without --post: READ-ONLY — prints a review queue of drafts, publishes nothing.
+    With --post: walk each draft ([p]ost / [e]dit / [s]kip / [q]uit), a final confirm gate,
+    then publish the approved replies as NIP-10 replies. Draft, don't autobot — you approve each.
     """
     config = _load_config()
+    mode = (
+        "INTERACTIVE POST (you approve each before it publishes)"
+        if post
+        else "READ-ONLY (drafts only — nothing is published)"
+    )
     console.print(
         Panel(
             f"[bold]Gathering engagement — last {since}h, up to {limit} items[/bold]\n\n"
-            f"[dim]model: {config.NOSTR_MERCHANT_MODEL}  ·  "
-            f"READ-ONLY (drafts only — nothing is published)[/dim]",
+            f"[dim]model: {config.NOSTR_MERCHANT_MODEL}  ·  {mode}[/dim]",
             title="nostr-merchant inbox",
             border_style="cyan",
         ),
@@ -190,17 +199,92 @@ def inbox(
         )
         raise typer.Exit(code=1) from err
 
-    console.print(
-        Panel(
-            result.queue,
-            title=f"engagement queue — {result.item_count} item(s), drafts only (nothing posted)",
-            border_style="green",
-        ),
-    )
-    console.print(
-        "[dim]v1 is read-only — nothing was published. Post the replies you approve "
-        "yourself (an approval-gated `inbox --post` is the next step).[/dim]",
-    )
+    if not post:
+        console.print(
+            Panel(
+                result.queue,
+                title=f"engagement queue — {result.item_count} item(s), drafts only (nothing posted)",
+                border_style="green",
+            ),
+        )
+        console.print(
+            "[dim]read-only — nothing published. Re-run with --post to approve + publish replies.[/dim]",
+        )
+        return
+
+    # --- --post: interactive approval ---
+    drafts = [d for d in result.drafts if d.action == "draft" and d.event_id in result.items_by_id]
+    skipped = sum(1 for d in result.drafts if d.action == "skip")
+    if not drafts:
+        console.print(
+            f"[yellow]No drafts to post ({skipped} auto-skipped, or nothing in the window).[/yellow]",
+        )
+        return
+
+    console.print(f"\n[bold]{len(drafts)} draft(s) to review[/bold] · {skipped} auto-skipped\n")
+    approved: list[tuple[str, str, str]] = []
+    for i, d in enumerate(drafts, 1):
+        it = result.items_by_id[d.event_id]
+        console.print(
+            Panel(
+                f"[dim]from {it.author}… · {it.relation} · event {d.event_id[:16]}…[/dim]\n\n"
+                f"[bold]they said:[/bold] {it.content[:240]}\n\n"
+                f"[green]draft:[/green] {d.text}",
+                title=f"review {i}/{len(drafts)}",
+                border_style="cyan",
+            ),
+        )
+        choice = typer.prompt("  [p]ost / [e]dit / [s]kip / [q]uit", default="s").strip().lower()
+        if choice == "q":
+            console.print("[yellow]Stopping review.[/yellow]")
+            break
+        if choice == "p":
+            approved.append((d.event_id, it.author_pubkey, d.text))
+        elif choice == "e":
+            edited = typer.prompt("  your reply", default=d.text)
+            if edited.strip():
+                approved.append((d.event_id, it.author_pubkey, edited))
+
+    if not approved:
+        console.print("[yellow]Nothing approved — nothing posted.[/yellow]")
+        return
+
+    plural = "y" if len(approved) == 1 else "ies"
+    console.print(f"\n[bold]{len(approved)} repl{plural} approved.[/bold]")
+    if not typer.confirm(f"Publish {len(approved)} repl{plural} to NOSTR now?", default=False):
+        console.print("[yellow]Aborted — nothing posted.[/yellow]")
+        return
+
+    console.print("[dim]publishing…[/dim]")
+    try:
+        post_results = asyncio.run(_post_replies(config, approved))
+    except Exception as err:
+        console.print(
+            Panel(f"[red]{type(err).__name__}: {err}[/red]", title="post error", border_style="red"),
+        )
+        raise typer.Exit(code=1) from err
+
+    table = Table(title="posted", show_header=True, header_style="bold cyan")
+    table.add_column("reply to", style="dim")
+    table.add_column("status")
+    table.add_column("detail", overflow="fold")
+    published = 0
+    for r in post_results:
+        ok = bool(r.get("ok"))
+        published += int(ok)
+        res = r.get("result")
+        detail = (
+            json.dumps(res, separators=(",", ":"))[:90]
+            if isinstance(res, dict)
+            else str(r.get("error", ""))[:90]
+        )
+        table.add_row(
+            f"{str(r.get('reply_to', ''))[:14]}…",
+            "[green]posted[/green]" if ok else "[red]failed[/red]",
+            detail,
+        )
+    console.print(table)
+    console.print(f"[dim]{published}/{len(post_results)} published · audit: {config.AGENT_AUDIT_PATH}[/dim]")
 
 
 @app.command()

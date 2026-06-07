@@ -1,18 +1,16 @@
-"""Engagement inbox — triage replies/mentions on my NOSTR posts and draft responses.
+"""Engagement inbox — triage replies/mentions on my NOSTR posts and draft (v1) or post (v2) replies.
 
-v1 architecture: **deterministic gather + single-call draft**, with hard timeouts.
+Architecture: **deterministic gather + structured single-call draft**, with hard timeouts.
 
-  - Gathering runs IN PYTHON, calling nostr-ops-mcp's READ tools directly by name through
-    pydantic-ai's `MCPServerStdio.direct_call_tool` (the same client the agent + `doctor` use —
-    proven to work). It is the *raw* `mcp` stdio client that deadlocks on this setup, not this
-    one. The whole gather is wrapped in `asyncio.timeout(GATHER_TIMEOUT_S)` so it can never hang
-    the CLI — worst case it errors fast.
-  - The LLM does ONE thing: draft replies for the already-gathered items, via an Agent built
-    with NO toolsets — so it cannot loop, publish, DM, or spend.
+  - Gathering runs in Python, calling nostr-ops-mcp READ tools directly via pydantic-ai's
+    `MCPServerStdio.direct_call_tool`, wrapped in `asyncio.timeout` so it can never hang.
+  - Drafting is ONE LLM call (no tools) returning STRUCTURED drafts (draft|skip per item).
+  - v1 (`inbox`): read-only — prints the drafted queue, posts nothing.
+  - v2 (`inbox --post`): the CLI walks each draft (approve/edit/skip), a final confirm gate,
+    then posts approved replies as NIP-10 replies via `nostr_publish_text_note`. The operator's
+    per-item approval IS the gate — draft, don't autobot.
 
-Nothing is published. The operator reviews the queue and posts approved replies. A later
-`inbox --post` adds an approval-gated publish step. See 05-engagement-workflow-design.md.
-Governing principle: draft, don't autobot.
+See 05-engagement-workflow-design.md.
 """
 
 from __future__ import annotations
@@ -22,8 +20,9 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
+from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPServerStdio
 
@@ -31,32 +30,45 @@ from ..agent import _resolve_model
 from ..audit import AuditLog
 from ..config import AgentConfig
 
-# The ONLY tools this workflow calls — both read-only. Drafting uses no tools at all.
+# The only READ tools the gather calls. Posting (v2) uses nostr_publish_text_note, gated by the
+# operator's per-item approval in the CLI + nostr-ops-mcp's own kind-allowlist + rate-limit.
 GATHER_READ_TOOLS: tuple[str, ...] = ("nostr_get_pubkey", "nostr_query_events")
+POST_TOOL = "nostr_publish_text_note"
 
-GATHER_TIMEOUT_S = 75  # hard ceiling on the whole gather — it must never hang the CLI again
-MY_KINDS = [1, 30023]  # my posts: text notes + long-form articles
+GATHER_TIMEOUT_S = 75
+MY_KINDS = [1, 30023]
 NOTE_KIND = 1
 
 DRAFT_PROMPT = """\
-You are nostr-merchant's engagement assistant. The operator's recent NOSTR posts received the
-replies/mentions listed below. Draft an authentic reply to each, OR mark it SKIP.
+You are nostr-merchant's engagement assistant. For each inbound item below, decide whether to
+draft a reply or skip it, and return a structured result — one entry per item.
 
-# Voice
-Terse, technical, sovereignty-aligned. Plain. No marketing-speak, no hype, no emoji spam. Match
-how a thoughtful FOSS / bitcoin / NOSTR builder actually talks. A good reply adds something —
-answers a question, acknowledges a real point, extends the thread. Never a generic "thanks!".
-SKIP spam, bots, one-word low-effort replies, or anything you'd have nothing real to add to.
+# Voice (for drafts)
+Terse, technical, sovereignty-aligned. Plain. No marketing-speak, no hype, no emoji spam. Match a
+thoughtful FOSS / bitcoin / NOSTR builder. A good reply adds something — answers a question,
+acknowledges a real point, extends the thread. **Match the language the person wrote in.** Never a
+generic "thanks!".
 
-# Output (markdown)
-A numbered queue, one entry per item, in the order given:
-- **From:** <author> — **on:** <which post / mention, one line>
-- **They said:** <short quote>
-- **Event:** <event id>
-- **Draft:** <your reply>   — or   **SKIP:** <one-line reason>
+# Decide
+- action="draft", `text` = your reply — for items worth a genuine response.
+- action="skip", `reason` = one line — for spam, bots, one-word low-effort replies, truncated
+  auto-summaries, or anything you'd have nothing real to add to.
 
-End with a single line: "N items · M drafted · K skipped".
+Copy each item's event_id EXACTLY into your result.
 """
+
+
+class DraftedReply(BaseModel):
+    """One structured decision from the LLM, keyed to an inbound event."""
+
+    event_id: str = Field(description="The inbound event id this addresses — copy it exactly.")
+    action: Literal["draft", "skip"]
+    text: str = Field(default="", description="The reply, in the operator's voice (when drafting).")
+    reason: str = Field(default="", description="One-line reason (when skipping).")
+
+
+class DraftQueue(BaseModel):
+    items: list[DraftedReply]
 
 
 @dataclass
@@ -64,7 +76,8 @@ class InboxItem:
     """One open inbound item (a reply to my post, or a mention of me)."""
 
     event_id: str
-    author: str
+    author: str  # short, for display
+    author_pubkey: str  # full hex — needed to tag the parent author on a reply
     content: str
     created_at: int
     relation: str  # "reply" | "mention"
@@ -74,7 +87,8 @@ class InboxItem:
 @dataclass
 class InboxResult:
     queue: str
-    since_ts: int
+    drafts: list[DraftedReply]
+    items_by_id: dict[str, InboxItem]
     since_hours: int
     my_post_count: int
     item_count: int
@@ -113,7 +127,6 @@ def _text(result: Any) -> str:
 
 
 def _events(result: Any) -> list[dict[str, Any]]:
-    """Extract the `events` list from a query result (already-parsed dict/list, or JSON text)."""
     data: Any = result
     if not isinstance(data, (dict, list)):
         try:
@@ -139,13 +152,13 @@ def _e_tags(ev: dict[str, Any]) -> list[str]:
 def _nostr_server(config: AgentConfig) -> MCPServerStdio:
     spec = next((s for s in config.mcp_server_specs() if s.name == "nostr"), None)
     if spec is None:
-        msg = "No 'nostr' server in the substrate — can't gather engagement."
+        msg = "No 'nostr' server in the substrate — can't run engagement."
         raise RuntimeError(msg)
     kwargs: dict[str, Any] = {
         "command": spec.command,
         "args": list(spec.args),
         "id": "nostr",
-        "timeout": 12,  # per-operation timeout inside pydantic-ai's client
+        "timeout": 12,
     }
     if spec.cwd is not None:
         kwargs["cwd"] = spec.cwd
@@ -161,17 +174,11 @@ async def _gather(
     limit: int,
     on_progress: Callable[[str], None] | None = None,
 ) -> tuple[int, list[InboxItem]]:
-    """Query nostr-ops-mcp READ tools directly (no LLM) for open replies + mentions.
-
-    Five sub-second queries, all read-only, bounded by ``GATHER_TIMEOUT_S``. Emits granular
-    progress so a stall is visible (and pinpointable) rather than a blind wait.
-    """
+    """Query nostr-ops-mcp READ tools directly (no LLM) for open replies + mentions."""
     report = on_progress or (lambda _m: None)
     server = _nostr_server(config)
     report("connecting to nostr-ops-mcp…")
     async with asyncio.timeout(GATHER_TIMEOUT_S), server:
-        # list_tools first: the operation `doctor` uses successfully. It also primes
-        # pydantic-ai's client so direct_call_tool can resolve tool names.
         tools = await server.list_tools()
         report(f"connected · {len(tools)} tools available")
 
@@ -214,7 +221,6 @@ async def _gather(
         )
         answered: set[str] = {eid for ev in my_outbound for eid in _e_tags(ev)}
 
-        # Assemble open items deterministically (still inside the server context — pure/fast).
         seen: set[str] = set()
         items: list[InboxItem] = []
         for ev in [*replies, *mentions]:
@@ -230,10 +236,12 @@ async def _gather(
             seen.add(eid)
             target = next((t for t in reversed(_e_tags(ev)) if t in post_by_id), None)
             excerpt = (post_by_id[target].get("content") or "")[:80] if target else ""
+            pubkey = str(ev.get("pubkey", ""))
             items.append(
                 InboxItem(
                     event_id=eid,
-                    author=str(ev.get("pubkey", ""))[:12],
+                    author=pubkey[:12],
+                    author_pubkey=pubkey,
                     content=(ev.get("content") or "")[:400],
                     created_at=int(ev.get("created_at", 0) or 0),
                     relation="reply" if target else "mention",
@@ -245,23 +253,92 @@ async def _gather(
         return len(my_posts), items[:limit]
 
 
-async def _draft(items: list[InboxItem], config: AgentConfig) -> str:
-    """One LLM call, NO tools — turn gathered items into a reviewable draft queue."""
-    agent: Agent[None, str] = Agent(model=_resolve_model(config), system_prompt=DRAFT_PROMPT)
+async def _draft(items: list[InboxItem], config: AgentConfig) -> list[DraftedReply]:
+    """One LLM call (no tools) → structured draft/skip decision per item."""
+    agent: Agent[None, DraftQueue] = Agent(
+        model=_resolve_model(config),
+        output_type=DraftQueue,
+        system_prompt=DRAFT_PROMPT,
+    )
     blocks = []
-    for n, it in enumerate(items, 1):
+    for it in items:
         ctx = (
             f"reply on my post: “{it.on_post_excerpt}…”"
             if it.relation == "reply"
             else "mention of me"
         )
         blocks.append(
-            f"{n}. [{it.relation}] event {it.event_id}\n"
-            f"   author {it.author}…  ·  {ctx}\n"
-            f"   they said: {it.content}",
+            f"event_id: {it.event_id}\n  {ctx}\n  they said: {it.content}",
         )
     result = await agent.run("Items:\n\n" + "\n\n".join(blocks))
-    return str(result.output)
+    known = {it.event_id for it in items}
+    return [d for d in result.output.items if d.event_id in known]
+
+
+def render_queue(items_by_id: dict[str, InboxItem], drafts: list[DraftedReply]) -> str:
+    """Human-readable review queue derived from the structured drafts."""
+    if not drafts:
+        return "(no drafts)"
+    lines: list[str] = []
+    drafted = skipped = 0
+    for n, d in enumerate(drafts, 1):
+        it = items_by_id.get(d.event_id)
+        if it is None:
+            continue
+        ctx = f"reply on “{it.on_post_excerpt}…”" if it.relation == "reply" else "mention"
+        head = f"{n}. from {it.author}… · {ctx} · event {d.event_id[:12]}…"
+        if d.action == "skip":
+            skipped += 1
+            lines.append(f"{head}\n   SKIP: {d.reason}")
+        else:
+            drafted += 1
+            lines.append(f"{head}\n   they said: {it.content[:160]}\n   DRAFT: {d.text}")
+    summary = f"\n{len(drafts)} item(s) · {drafted} drafted · {skipped} skipped"
+    return "\n\n".join(lines) + summary
+
+
+async def _post_replies(
+    config: AgentConfig,
+    approved: list[tuple[str, str, str]],
+) -> list[dict[str, Any]]:
+    """Publish approved replies as NIP-10 replies via nostr_publish_text_note.
+
+    `approved` is a list of (reply_to_event_id, reply_to_author_hex, text). Audited.
+    """
+    audit = AuditLog(config.AGENT_AUDIT_PATH)
+    server = _nostr_server(config)
+    out: list[dict[str, Any]] = []
+    async with asyncio.timeout(GATHER_TIMEOUT_S), server:
+        await server.list_tools()  # prime the client
+        for event_id, author_pubkey, text in approved:
+            try:
+                raw = await server.direct_call_tool(
+                    POST_TOOL,
+                    {
+                        "content": text,
+                        "reply_to_event_id": event_id,
+                        "reply_to_author": author_pubkey,
+                    },
+                )
+                parsed = json.loads(_text(raw) or "{}")
+                ok = isinstance(parsed, dict) and "error" not in parsed
+                out.append({"reply_to": event_id, "ok": ok, "result": parsed})
+                await audit.record_tool_call(
+                    tool=POST_TOOL,
+                    outcome="ok" if ok else "error",
+                    input={"reply_to_event_id": event_id},
+                    result=parsed if ok else None,
+                    error=None if ok else json.dumps(parsed)[:200],
+                )
+            except Exception as err:
+                out.append({"reply_to": event_id, "ok": False, "error": f"{type(err).__name__}: {err}"})
+                await audit.record_tool_call(
+                    tool=POST_TOOL,
+                    outcome="error",
+                    input={"reply_to_event_id": event_id},
+                    error=f"{type(err).__name__}: {err}",
+                )
+    return out
 
 
 async def run_inbox(
@@ -271,11 +348,7 @@ async def run_inbox(
     limit: int = 20,
     on_progress: Callable[[str], None] | None = None,
 ) -> InboxResult:
-    """Gather open replies/mentions on the operator's recent posts and draft responses.
-
-    READ-ONLY end to end: gathering calls only nostr read tools; drafting uses a tool-less
-    Agent. Nothing is published.
-    """
+    """Gather open replies/mentions and draft responses. Gathering + drafting only — never posts."""
     audit = AuditLog(config.AGENT_AUDIT_PATH)
     since_ts = int(time.time()) - since_hours * 3600
     await audit.record_startup(
@@ -284,7 +357,6 @@ async def run_inbox(
             "model": config.NOSTR_MERCHANT_MODEL,
             "since_hours": since_hours,
             "limit": limit,
-            "read_only": True,
         },
     )
 
@@ -293,14 +365,11 @@ async def run_inbox(
             config, since_ts=since_ts, limit=limit, on_progress=on_progress,
         )
     except TimeoutError as err:
-        await audit.record_llm_call(
-            outcome="error",
-            input={"since_hours": since_hours},
-            error="gather timed out",
-        )
+        await audit.record_llm_call(outcome="error", input={"since_hours": since_hours}, error="gather timed out")
         msg = f"Gather timed out after {GATHER_TIMEOUT_S}s — nostr-ops-mcp may be unreachable."
         raise RuntimeError(msg) from err
 
+    items_by_id = {it.event_id: it for it in items}
     if on_progress is not None:
         on_progress(
             f"gathered {my_post_count} recent post(s) · {len(items)} open item(s)"
@@ -312,26 +381,16 @@ async def run_inbox(
             f"No new replies or mentions in the last {since_hours}h "
             f"across your {my_post_count} recent post(s)."
         )
-        await audit.record_llm_call(
-            outcome="ok",
-            input={"since_hours": since_hours, "limit": limit},
-            result={"items": 0},
-        )
-        return InboxResult(queue, since_ts, since_hours, my_post_count, 0)
+        await audit.record_llm_call(outcome="ok", input={"since_hours": since_hours}, result={"items": 0})
+        return InboxResult(queue, [], items_by_id, since_hours, my_post_count, 0)
 
     try:
-        queue = await _draft(items, config)
-        await audit.record_llm_call(
-            outcome="ok",
-            input={"items": len(items)},
-            result={"queue_length": len(queue)},
-        )
+        drafts = await _draft(items, config)
+        await audit.record_llm_call(outcome="ok", input={"items": len(items)}, result={"drafts": len(drafts)})
     except Exception as err:
-        await audit.record_llm_call(
-            outcome="error",
-            input={"items": len(items)},
-            error=f"{type(err).__name__}: {err}",
-        )
+        await audit.record_llm_call(outcome="error", input={"items": len(items)}, error=f"{type(err).__name__}: {err}")
         raise
 
-    return InboxResult(queue, since_ts, since_hours, my_post_count, len(items))
+    return InboxResult(
+        render_queue(items_by_id, drafts), drafts, items_by_id, since_hours, my_post_count, len(items),
+    )
