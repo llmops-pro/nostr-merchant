@@ -1,10 +1,10 @@
 # nostr-merchant
 
-**Reference Python agent for the LLMOps.Pro sovereign-AI substrate.** Consumes the five MCP servers ([`nwc-mcp`](https://npmjs.com/package/nwc-mcp), [`nostr-ops-mcp`](https://npmjs.com/package/nostr-ops-mcp), [`marketplace-mcp`](https://npmjs.com/package/marketplace-mcp), [`albyhub-admin-mcp`](https://npmjs.com/package/albyhub-admin-mcp), [`paywall-mcp`](https://npmjs.com/package/paywall-mcp)) and demonstrates the agent-pays-paid-MCP loop end-to-end.
+**The AI that runs your NOSTR business.** A local-first Python agent that holds the whole merchant toolkit — it checks its Lightning wallet, publishes notes and listings, runs a Shopstr storefront, answers encrypted DMs, and pays for paywalled MCP tools over NWC — all under sats budget caps it can't exceed. Built on five MCP servers ([`nwc-mcp`](https://npmjs.com/package/nwc-mcp), [`nostr-ops-mcp`](https://npmjs.com/package/nostr-ops-mcp), [`marketplace-mcp`](https://npmjs.com/package/marketplace-mcp), [`albyhub-admin-mcp`](https://npmjs.com/package/albyhub-admin-mcp), [`paywall-mcp`](https://npmjs.com/package/paywall-mcp)) — 37 tools the agent picks from.
 
 Ollama-first, API-pluggable. Built on [`pydantic-ai`](https://ai.pydantic.dev) — no LangChain. MIT.
 
-> **v0.1 operational.** All six CLI commands wired. Agent layer enforces a budget-and-audit safety pipeline on top of every MCP server's own safety stack. Self-paying research workflow runs end-to-end given a working LLM backend (Ollama / Anthropic / OpenAI). Full design at [`../03-python-reference-agent-design.md`](../03-python-reference-agent-design.md).
+> **v0.2 — renamed from `llmops-agent`.** All six CLI commands wired. The agent layer enforces a budget-and-audit safety pipeline on top of every MCP server's own safety stack. This release ships the full toolkit, the safety stack, and a working self-paying loop as proof the agent-pays-for-tools path holds end to end (given a working LLM backend — Ollama / Anthropic / OpenAI). Directing it at your own merchant tasks is what it's for today; unattended scheduled storefront-tending is the roadmap.
 
 ---
 
