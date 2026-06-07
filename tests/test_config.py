@@ -1,4 +1,4 @@
-"""Tests for `llmops_agent.config`.
+"""Tests for `nostr_merchant.config`.
 
 The config object is a Pydantic Settings instance — most of the
 interesting behavior is in the validators and the derived helpers.
@@ -11,19 +11,19 @@ import os
 import pytest
 from pydantic import ValidationError
 
-from llmops_agent.config import AgentConfig
+from nostr_merchant.config import AgentConfig
 
 
 def make(**overrides: object) -> AgentConfig:
     """Construct an AgentConfig bypassing env file loading, with overrides.
 
     `_env_file=None` is load-bearing: without it, pydantic-settings still
-    reads the operator's real `~/.llmops-agent/.env`, leaking whatever the
-    user has configured there (e.g. LLMOPS_SUBSTRATE_SKIP) into every test
+    reads the operator's real `~/.nostr-merchant/.env`, leaking whatever the
+    user has configured there (e.g. NOSTR_MERCHANT_SUBSTRATE_SKIP) into every test
     config and making the suite non-hermetic.
     """
     base: dict[str, object] = {
-        "LLMOPS_MODEL": "ollama:qwen3:8b",
+        "NOSTR_MERCHANT_MODEL": "ollama:qwen3:8b",
         "AGENT_MAX_SATS_PER_TASK": 100,
         "AGENT_MAX_SATS_PER_DAY": 1000,
         "AGENT_MAX_TOOL_PRICE": 500,
@@ -34,22 +34,22 @@ def make(**overrides: object) -> AgentConfig:
 
 class TestModelString:
     def test_accepts_ollama_default(self) -> None:
-        cfg = make(LLMOPS_MODEL="ollama:qwen3:8b")
+        cfg = make(NOSTR_MERCHANT_MODEL="ollama:qwen3:8b")
         assert cfg.llm_provider() == "ollama"
         assert cfg.llm_model_name() == "qwen3:8b"
 
     def test_accepts_anthropic(self) -> None:
-        cfg = make(LLMOPS_MODEL="anthropic:claude-haiku-4-5-20251001")
+        cfg = make(NOSTR_MERCHANT_MODEL="anthropic:claude-haiku-4-5-20251001")
         assert cfg.llm_provider() == "anthropic"
         assert cfg.llm_model_name() == "claude-haiku-4-5-20251001"
 
     def test_rejects_missing_colon(self) -> None:
         with pytest.raises(ValidationError, match="<provider>:<model>"):
-            make(LLMOPS_MODEL="qwen3")
+            make(NOSTR_MERCHANT_MODEL="qwen3")
 
     def test_rejects_unknown_provider(self) -> None:
         with pytest.raises(ValidationError, match="Unrecognized LLM provider"):
-            make(LLMOPS_MODEL="madeup:model")
+            make(NOSTR_MERCHANT_MODEL="madeup:model")
 
 
 class TestBudgetInvariants:
@@ -102,7 +102,7 @@ class TestMcpServerSpecs:
 
     def test_override_via_json_array(self) -> None:
         cfg = make(
-            LLMOPS_MCP_SERVERS='[{"name":"only","command":"node","args":["a.js"]}]'
+            NOSTR_MERCHANT_MCP_SERVERS='[{"name":"only","command":"node","args":["a.js"]}]'
         )
         specs = cfg.mcp_server_specs()
         assert len(specs) == 1
@@ -111,19 +111,19 @@ class TestMcpServerSpecs:
         assert specs[0].args == ["a.js"]
 
     def test_invalid_json_raises(self) -> None:
-        cfg = make(LLMOPS_MCP_SERVERS="{not json}")
+        cfg = make(NOSTR_MERCHANT_MCP_SERVERS="{not json}")
         with pytest.raises(ValueError, match="not valid JSON"):
             cfg.mcp_server_specs()
 
     def test_non_array_raises(self) -> None:
-        cfg = make(LLMOPS_MCP_SERVERS='{"name":"x","command":"y"}')
+        cfg = make(NOSTR_MERCHANT_MCP_SERVERS='{"name":"x","command":"y"}')
         with pytest.raises(ValueError, match="JSON array"):
             cfg.mcp_server_specs()
 
 
 class TestSubstrateRoot:
     def test_local_builds_emit_node_command(self, tmp_path: object) -> None:
-        cfg = make(LLMOPS_SUBSTRATE_ROOT=str(tmp_path))
+        cfg = make(NOSTR_MERCHANT_SUBSTRATE_ROOT=str(tmp_path))
         specs = cfg.mcp_server_specs()
         assert len(specs) == 5
         for spec in specs:
@@ -143,14 +143,14 @@ class TestSubstrateSkip:
         assert len(cfg.mcp_server_specs()) == 5
 
     def test_single_skip_filters_npx_defaults(self) -> None:
-        cfg = make(LLMOPS_SUBSTRATE_SKIP="albyhub")
+        cfg = make(NOSTR_MERCHANT_SUBSTRATE_SKIP="albyhub")
         assert cfg.substrate_skip() == {"albyhub"}
         names = [s.name for s in cfg.mcp_server_specs()]
         assert "albyhub" not in names
         assert len(names) == 4
 
     def test_multiple_skips_csv(self) -> None:
-        cfg = make(LLMOPS_SUBSTRATE_SKIP="albyhub, paywall")
+        cfg = make(NOSTR_MERCHANT_SUBSTRATE_SKIP="albyhub, paywall")
         assert cfg.substrate_skip() == {"albyhub", "paywall"}
         names = [s.name for s in cfg.mcp_server_specs()]
         assert "albyhub" not in names
@@ -159,8 +159,8 @@ class TestSubstrateSkip:
 
     def test_skip_filters_substrate_root_specs(self, tmp_path: object) -> None:
         cfg = make(
-            LLMOPS_SUBSTRATE_ROOT=str(tmp_path),
-            LLMOPS_SUBSTRATE_SKIP="nostr",
+            NOSTR_MERCHANT_SUBSTRATE_ROOT=str(tmp_path),
+            NOSTR_MERCHANT_SUBSTRATE_SKIP="nostr",
         )
         names = [s.name for s in cfg.mcp_server_specs()]
         assert "nostr" not in names
@@ -171,20 +171,20 @@ class TestSubstrateSkip:
 
     def test_skip_does_not_apply_to_full_override(self) -> None:
         cfg = make(
-            LLMOPS_MCP_SERVERS='[{"name":"albyhub","command":"x","args":[]}]',
-            LLMOPS_SUBSTRATE_SKIP="albyhub",  # ignored when full override is set
+            NOSTR_MERCHANT_MCP_SERVERS='[{"name":"albyhub","command":"x","args":[]}]',
+            NOSTR_MERCHANT_SUBSTRATE_SKIP="albyhub",  # ignored when full override is set
         )
         specs = cfg.mcp_server_specs()
         # Full override wins — albyhub still present.
         assert [s.name for s in specs] == ["albyhub"]
 
     def test_unknown_name_raises(self) -> None:
-        cfg = make(LLMOPS_SUBSTRATE_SKIP="bogus")
+        cfg = make(NOSTR_MERCHANT_SUBSTRATE_SKIP="bogus")
         with pytest.raises(ValueError, match="unrecognized names"):
             cfg.substrate_skip()
 
     def test_case_and_whitespace_tolerated(self) -> None:
-        cfg = make(LLMOPS_SUBSTRATE_SKIP=" Albyhub ,  PAYWALL ")
+        cfg = make(NOSTR_MERCHANT_SUBSTRATE_SKIP=" Albyhub ,  PAYWALL ")
         assert cfg.substrate_skip() == {"albyhub", "paywall"}
 
 

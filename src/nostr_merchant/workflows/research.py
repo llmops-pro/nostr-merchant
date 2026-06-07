@@ -1,6 +1,6 @@
 """Self-paying research agent — the v0.1 reference workflow.
 
-Entry point for `llmops-agent ask`. Builds the agent, runs it against the
+Entry point for `nostr-merchant ask`. Builds the agent, runs it against the
 user's question, audits every tool call + LLM completion, returns the
 final answer + a structured budget snapshot.
 
@@ -44,7 +44,7 @@ async def run_research(
     await audit.record_startup(
         {
             "kind": "research_task",
-            "model": config.LLMOPS_MODEL,
+            "model": config.NOSTR_MERCHANT_MODEL,
             "question_length": len(question),
             "budget_before": {
                 "spent_today_sats": budget_before.spent_today_sats,

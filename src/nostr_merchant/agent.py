@@ -2,7 +2,7 @@
 
 Builds the `Agent` instance with:
 
-- A configured model (`LLMOPS_MODEL` env, e.g. `ollama:qwen3:8b`).
+- A configured model (`NOSTR_MERCHANT_MODEL` env, e.g. `ollama:qwen3:8b`).
 - The five substrate MCP servers attached as tool surfaces.
 - A `process_tool_call` middleware on every server that enforces the
   agent-layer budget caps and writes audit entries — sits ON TOP of each
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 
 SYSTEM_PROMPT = """\
-You are llmops-agent — a sovereign AI assistant with Lightning-paid tools.
+You are nostr-merchant — a sovereign AI assistant with Lightning-paid tools.
 
 # How to use tools
 
@@ -99,7 +99,7 @@ state.
 
 
 def _resolve_model(config: AgentConfig) -> Model | KnownModelName | str:
-    """Turn the LLMOPS_MODEL env string into something `Agent(model=...)` accepts.
+    """Turn the NOSTR_MERCHANT_MODEL env string into something `Agent(model=...)` accepts.
 
     Pydantic AI accepts the model-string form directly via `infer_model`,
     so we just pass through. Provider-specific env vars (ANTHROPIC_API_KEY,
@@ -109,7 +109,7 @@ def _resolve_model(config: AgentConfig) -> Model | KnownModelName | str:
     only works if the operator manually `export`ed the keys.
     """
     config.apply_provider_env()
-    return config.LLMOPS_MODEL
+    return config.NOSTR_MERCHANT_MODEL
 
 
 def build_agent(

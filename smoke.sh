@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# smoke.sh — end-to-end console check for llmops-agent.
+# smoke.sh — end-to-end console check for nostr-merchant.
 #
 # Runs the agent's CLI surface top-to-bottom with section headers:
 #   1. version        (local)
@@ -69,26 +69,26 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 printf 'project: %s\n' "$(pwd)"
-printf 'env file: %s %s\n' "$HOME/.llmops-agent/.env" \
-  "$( [ -f "$HOME/.llmops-agent/.env" ] && echo '(found)' || echo "${RED}(MISSING — copy .env.example)${RST}")"
+printf 'env file: %s %s\n' "$HOME/.nostr-merchant/.env" \
+  "$( [ -f "$HOME/.nostr-merchant/.env" ] && echo '(found)' || echo "${RED}(MISSING — copy .env.example)${RST}")"
 printf 'ask step: %s\n' "$( [ "$RUN_ASK" = 1 ] && echo "enabled (read-only=$READ_ONLY)" || echo 'skipped (--no-ask)')"
 
 # ---- 1..5: local + substrate checks -----------------------------------------
-run_step "1. version"      uv run llmops-agent version
-run_step "2. config-print" uv run llmops-agent config-print
-run_step "3. doctor"       uv run llmops-agent doctor
-run_step "4. budget"       uv run llmops-agent budget
-run_step "5. audit"        uv run llmops-agent audit -n 10
+run_step "1. version"      uv run nostr-merchant version
+run_step "2. config-print" uv run nostr-merchant config-print
+run_step "3. doctor"       uv run nostr-merchant doctor
+run_step "4. budget"       uv run nostr-merchant budget
+run_step "5. audit"        uv run nostr-merchant audit -n 10
 
 # ---- 6: the real agent loop --------------------------------------------------
 if [ "$RUN_ASK" = 1 ]; then
   section "6. ask"
   printf '%squestion: %s%s\n' "$DIM" "$QUESTION" "$RST"
-  printf '%s$ AGENT_READ_ONLY=%s uv run llmops-agent ask "%s"%s\n' "$DIM" "$READ_ONLY" "$QUESTION" "$RST"
-  if AGENT_READ_ONLY="$READ_ONLY" uv run llmops-agent ask "$QUESTION"; then
+  printf '%s$ AGENT_READ_ONLY=%s uv run nostr-merchant ask "%s"%s\n' "$DIM" "$READ_ONLY" "$QUESTION" "$RST"
+  if AGENT_READ_ONLY="$READ_ONLY" uv run nostr-merchant ask "$QUESTION"; then
     STEP_NAMES+=("6. ask"); STEP_RESULTS+=("PASS")
   else
-    printf '%s[ask failed — check the API key in ~/.llmops-agent/.env and the doctor step above]%s\n' "$RED" "$RST"
+    printf '%s[ask failed — check the API key in ~/.nostr-merchant/.env and the doctor step above]%s\n' "$RED" "$RST"
     STEP_NAMES+=("6. ask"); STEP_RESULTS+=("FAIL")
   fi
 fi

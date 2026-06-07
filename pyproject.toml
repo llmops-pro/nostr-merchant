@@ -1,5 +1,5 @@
 [project]
-name = "llmops-agent"
+name = "nostr-merchant"
 version = "0.1.0"
 description = "Reference Python agent for the LLMOps.Pro sovereign-AI substrate. Consumes the five MCP servers (nwc-mcp, nostr-ops-mcp, marketplace-mcp, albyhub-admin-mcp, paywall-mcp) and demonstrates the agent-pays-paid-MCP loop end-to-end. Ollama-first, API-pluggable. Built on pydantic-ai — no LangChain. MIT."
 readme = "README.md"
@@ -46,13 +46,13 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/llmops-pro/llmops-agent"
-Repository = "https://github.com/llmops-pro/llmops-agent"
-Issues = "https://github.com/llmops-pro/llmops-agent/issues"
+Homepage = "https://github.com/llmops-pro/nostr-merchant"
+Repository = "https://github.com/llmops-pro/nostr-merchant"
+Issues = "https://github.com/llmops-pro/nostr-merchant/issues"
 "NOSTR (zap / DM)" = "https://njump.me/npub1hdg932jvwc3jdvkqywgqv0ue4nn60exrf92asy8mtazt3hjg7d2s2yw0nw"
 
 [project.scripts]
-llmops-agent = "llmops_agent.cli:app"
+nostr-merchant = "nostr_merchant.cli:app"
 
 [dependency-groups]
 dev = [

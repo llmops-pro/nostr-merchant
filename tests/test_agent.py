@@ -15,19 +15,19 @@ from typing import Any
 import pytest
 from pydantic_ai.models.test import TestModel
 
-from llmops_agent.agent import (
+from nostr_merchant.agent import (
     SYSTEM_PROMPT,
     build_agent,
     make_process_tool_call,
 )
-from llmops_agent.audit import AuditLog
-from llmops_agent.budget import BudgetTracker
-from llmops_agent.config import AgentConfig
+from nostr_merchant.audit import AuditLog
+from nostr_merchant.budget import BudgetTracker
+from nostr_merchant.config import AgentConfig
 
 
 def make_config(**overrides: object) -> AgentConfig:
     base: dict[str, object] = {
-        "LLMOPS_MODEL": "ollama:qwen3:8b",
+        "NOSTR_MERCHANT_MODEL": "ollama:qwen3:8b",
         "AGENT_MAX_SATS_PER_TASK": 100,
         "AGENT_MAX_SATS_PER_DAY": 1000,
         "AGENT_MAX_TOOL_PRICE": 500,

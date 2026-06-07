@@ -1,4 +1,4 @@
-"""Tests for `llmops_agent.budget`.
+"""Tests for `nostr_merchant.budget`.
 
 The tracker is file-backed and uses a clock that can be overridden via the
 `now` constructor arg, so we can test the rolling-window math
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from llmops_agent.budget import BudgetTracker, SpendEntry
+from nostr_merchant.budget import BudgetTracker, SpendEntry
 
 
 @pytest.fixture

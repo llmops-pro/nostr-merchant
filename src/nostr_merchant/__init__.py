@@ -1,4 +1,4 @@
-"""llmops-agent — reference Python agent for the LLMOps.Pro sovereign-AI substrate.
+"""nostr-merchant — reference Python agent for the LLMOps.Pro sovereign-AI substrate.
 
 Consumes the five MCP servers (nwc-mcp, nostr-ops-mcp, marketplace-mcp,
 albyhub-admin-mcp, paywall-mcp) and demonstrates the agent-pays-paid-MCP loop
@@ -14,6 +14,6 @@ try:
     # Single source of truth: the version baked into the installed distribution
     # (from pyproject.toml). Avoids the hand-synced-constant drift where the
     # CLI reports a stale version after a release bump.
-    __version__ = _pkg_version("llmops-agent")
+    __version__ = _pkg_version("nostr-merchant")
 except PackageNotFoundError:  # running from a raw checkout, not installed
     __version__ = "0.0.0+unknown"

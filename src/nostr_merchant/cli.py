@@ -1,12 +1,12 @@
-"""Typer CLI entry-point for llmops-agent.
+"""Typer CLI entry-point for nostr-merchant.
 
 Commands per design doc §8:
-  - `llmops-agent ask "<question>"`         — main demo loop
-  - `llmops-agent doctor`                   — MCP server health probes
-  - `llmops-agent budget`                   — current spend snapshot
-  - `llmops-agent audit [--tail N]`         — recent audit entries
-  - `llmops-agent config-print`             — effective config (secrets masked)
-  - `llmops-agent version`                  — installed version
+  - `nostr-merchant ask "<question>"`         — main demo loop
+  - `nostr-merchant doctor`                   — MCP server health probes
+  - `nostr-merchant budget`                   — current spend snapshot
+  - `nostr-merchant audit [--tail N]`         — recent audit entries
+  - `nostr-merchant config-print`             — effective config (secrets masked)
+  - `nostr-merchant version`                  — installed version
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from .mcp_servers import doctor_check
 from .workflows.research import run_research
 
 app = typer.Typer(
-    name="llmops-agent",
+    name="nostr-merchant",
     help="Reference Python agent for the LLMOps.Pro sovereign-AI substrate.",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
@@ -45,8 +45,8 @@ def _load_config() -> AgentConfig:
         console.print(
             Panel(
                 f"[red]Config load failed:[/red]\n\n{err}\n\n"
-                f"[dim]Check ~/.llmops-agent/.env or the env vars in your shell.[/dim]",
-                title="llmops-agent",
+                f"[dim]Check ~/.nostr-merchant/.env or the env vars in your shell.[/dim]",
+                title="nostr-merchant",
                 border_style="red",
             ),
         )
@@ -58,7 +58,7 @@ def _load_config() -> AgentConfig:
 
 @app.command()
 def version() -> None:
-    """Print the installed llmops-agent version."""
+    """Print the installed nostr-merchant version."""
     typer.echo(__version__)
 
 
@@ -79,10 +79,10 @@ def ask(
     console.print(
         Panel(
             f"[bold]{question}[/bold]\n\n"
-            f"[dim]model: {config.LLMOPS_MODEL}  ·  "
+            f"[dim]model: {config.NOSTR_MERCHANT_MODEL}  ·  "
             f"per-task cap: {config.AGENT_MAX_SATS_PER_TASK} sats  ·  "
             f"per-day cap: {config.AGENT_MAX_SATS_PER_DAY} sats[/dim]",
-            title="llmops-agent ask",
+            title="nostr-merchant ask",
             border_style="cyan",
         ),
     )
@@ -148,7 +148,7 @@ def doctor() -> None:
     console.print(
         Panel(
             f"[bold]Probing {len(specs)} MCP server(s)...[/bold]",
-            title="llmops-agent doctor",
+            title="nostr-merchant doctor",
             border_style="cyan",
         ),
     )
@@ -197,7 +197,7 @@ def budget() -> None:
         max_per_day_sats=config.AGENT_MAX_SATS_PER_DAY,
     )
     snap = tracker.snapshot()
-    table = Table(title="llmops-agent budget", show_header=True, header_style="bold cyan")
+    table = Table(title="nostr-merchant budget", show_header=True, header_style="bold cyan")
     table.add_column("window", style="dim")
     table.add_column("spent (sats)")
     table.add_column("cap (sats)")

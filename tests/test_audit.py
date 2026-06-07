@@ -1,4 +1,4 @@
-"""Tests for `llmops_agent.audit`.
+"""Tests for `nostr_merchant.audit`.
 
 NDJSON shape verification + concurrent-write safety (the async lock should
 serialize concurrent record calls so lines never interleave).
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from llmops_agent.audit import AuditLog
+from nostr_merchant.audit import AuditLog
 
 
 def read_lines(path: Path) -> list[dict[str, object]]:

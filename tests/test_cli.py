@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from llmops_agent.cli import app
+from nostr_merchant.cli import app
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def isolated_env(tmp_path: Path) -> Iterator[None]:
         "AGENT_MAX_SATS_PER_TASK",
         "AGENT_MAX_SATS_PER_DAY",
         "AGENT_MAX_TOOL_PRICE",
-        "LLMOPS_MODEL",
+        "NOSTR_MERCHANT_MODEL",
         "AGENT_TOOL_ALLOWLIST",
         "AGENT_READ_ONLY",
         "ANTHROPIC_API_KEY",
@@ -37,7 +37,7 @@ def isolated_env(tmp_path: Path) -> Iterator[None]:
         os.environ.pop(k, None)
     os.environ["AGENT_AUDIT_PATH"] = str(tmp_path / "audit.log")
     os.environ["AGENT_BUDGET_PATH"] = str(tmp_path / "budget.json")
-    os.environ["LLMOPS_MODEL"] = "ollama:qwen3:8b"
+    os.environ["NOSTR_MERCHANT_MODEL"] = "ollama:qwen3:8b"
     try:
         yield
     finally:
@@ -53,7 +53,7 @@ class TestVersion:
         runner = CliRunner()
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
-        from llmops_agent import __version__
+        from nostr_merchant import __version__
 
         assert __version__ in result.stdout
 
@@ -106,13 +106,13 @@ class TestConfigPrint:
         runner = CliRunner()
         result = runner.invoke(app, ["config-print"])
         assert result.exit_code == 0
-        assert "LLMOPS_MODEL" in result.stdout
+        assert "NOSTR_MERCHANT_MODEL" in result.stdout
         assert "AGENT_MAX_SATS_PER_TASK" in result.stdout
 
 
 class TestInvalidConfigFailsLoudly:
     def test_bad_model_string_exits_nonzero(self, isolated_env: None) -> None:
-        os.environ["LLMOPS_MODEL"] = "garbage_no_colon"
+        os.environ["NOSTR_MERCHANT_MODEL"] = "garbage_no_colon"
         runner = CliRunner()
         result = runner.invoke(app, ["budget"])
         assert result.exit_code == 1

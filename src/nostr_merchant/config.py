@@ -1,4 +1,4 @@
-"""Env-driven configuration for llmops-agent.
+"""Env-driven configuration for nostr-merchant.
 
 Mirrors the safety-knob conventions of the substrate MCP servers (read-only
 mode, per-call budget cap, daily budget cap, etc.) but applies them at the
@@ -28,31 +28,31 @@ class McpServerSpec(BaseSettings):
 
 
 def _default_audit_path() -> Path:
-    return Path.home() / ".llmops-agent" / "audit.log"
+    return Path.home() / ".nostr-merchant" / "audit.log"
 
 
 def _default_budget_path() -> Path:
-    return Path.home() / ".llmops-agent" / "budget.json"
+    return Path.home() / ".nostr-merchant" / "budget.json"
 
 
 class AgentConfig(BaseSettings):
-    """All env-driven config for llmops-agent.
+    """All env-driven config for nostr-merchant.
 
     The fields here are read from the process environment (or the `.env` file
-    at `~/.llmops-agent/.env`). They are validated by Pydantic, so any
+    at `~/.nostr-merchant/.env`). They are validated by Pydantic, so any
     misconfiguration fails loudly at startup rather than mid-task.
     """
 
     model_config = SettingsConfigDict(
         env_prefix="",
-        env_file=str(Path.home() / ".llmops-agent" / ".env"),
+        env_file=str(Path.home() / ".nostr-merchant" / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=True,
     )
 
     # ---- LLM backend ----
-    LLMOPS_MODEL: str = Field(
+    NOSTR_MERCHANT_MODEL: str = Field(
         default="ollama:qwen3:8b",
         description=(
             "Pydantic AI model string. Examples: 'ollama:qwen3:8b', "
@@ -71,22 +71,22 @@ class AgentConfig(BaseSettings):
     OPENAI_API_KEY: str | None = None
 
     # ---- MCP servers ----
-    LLMOPS_MCP_SERVERS: str | None = Field(
+    NOSTR_MERCHANT_MCP_SERVERS: str | None = Field(
         default=None,
         description=(
             "JSON array of MCP server specs: "
             '[{"name":"nwc","command":"npx","args":["-y","nwc-mcp"]}, ...]. '
             "When unset, the bundled defaults are chosen based on "
-            "LLMOPS_SUBSTRATE_ROOT (see below)."
+            "NOSTR_MERCHANT_SUBSTRATE_ROOT (see below)."
         ),
     )
-    LLMOPS_SUBSTRATE_ROOT: Path | None = Field(
+    NOSTR_MERCHANT_SUBSTRATE_ROOT: Path | None = Field(
         default=None,
         description=(
             "Path to the parent directory containing the five MCP-server "
             "build directories as siblings (`nwc-mcp/`, `nostr-ops-mcp/`, "
             "`marketplace-mcp/`, `albyhub-admin-mcp/`, `paywall-mcp/`). "
-            "When set AND `LLMOPS_MCP_SERVERS` is unset, the agent spawns "
+            "When set AND `NOSTR_MERCHANT_MCP_SERVERS` is unset, the agent spawns "
             "the substrate from your LOCAL builds via "
             "`node <root>/<name>/dist/index.js`, so each server reads its "
             "own `.env` from its own build directory. Use this in dev. "
@@ -96,15 +96,15 @@ class AgentConfig(BaseSettings):
             "files in the npx cache)."
         ),
     )
-    LLMOPS_SUBSTRATE_SKIP: str | None = Field(
+    NOSTR_MERCHANT_SUBSTRATE_SKIP: str | None = Field(
         default=None,
         description=(
             "Optional CSV of substrate spec names to exclude from the "
-            "default list (whether sourced from LLMOPS_SUBSTRATE_ROOT or "
+            "default list (whether sourced from NOSTR_MERCHANT_SUBSTRATE_ROOT or "
             "the npx fallback). Useful when one server's config is broken "
             "or its upstream dependency is unavailable. Recognized names: "
             "nwc, nostr, marketplace, albyhub, paywall. Example: "
-            "'LLMOPS_SUBSTRATE_SKIP=albyhub' to launch only the other four."
+            "'NOSTR_MERCHANT_SUBSTRATE_SKIP=albyhub' to launch only the other four."
         ),
     )
 
@@ -154,12 +154,12 @@ class AgentConfig(BaseSettings):
 
     # ---- Validators ----
 
-    @field_validator("LLMOPS_MODEL")
+    @field_validator("NOSTR_MERCHANT_MODEL")
     @classmethod
     def _validate_model_string(cls, v: str) -> str:
         if ":" not in v:
             msg = (
-                f"LLMOPS_MODEL must be of the form '<provider>:<model>' "
+                f"NOSTR_MERCHANT_MODEL must be of the form '<provider>:<model>' "
                 f"(e.g. 'ollama:qwen3:8b'). Got: {v!r}"
             )
             raise ValueError(msg)
@@ -169,7 +169,7 @@ class AgentConfig(BaseSettings):
             msg = (
                 f"Unrecognized LLM provider {provider!r}. Known providers: "
                 f"{sorted(known)}. (If pydantic-ai added a new provider since "
-                f"this release, update llmops_agent/config.py.)"
+                f"this release, update nostr_merchant/config.py.)"
             )
             raise ValueError(msg)
         return v
@@ -219,12 +219,12 @@ class AgentConfig(BaseSettings):
                 os.environ[key] = value
 
     def llm_provider(self) -> str:
-        """Provider half of LLMOPS_MODEL (e.g., 'ollama')."""
-        return self.LLMOPS_MODEL.split(":", 1)[0]
+        """Provider half of NOSTR_MERCHANT_MODEL (e.g., 'ollama')."""
+        return self.NOSTR_MERCHANT_MODEL.split(":", 1)[0]
 
     def llm_model_name(self) -> str:
-        """Model half of LLMOPS_MODEL (e.g., 'qwen3:8b')."""
-        return self.LLMOPS_MODEL.split(":", 1)[1]
+        """Model half of NOSTR_MERCHANT_MODEL (e.g., 'qwen3:8b')."""
+        return self.NOSTR_MERCHANT_MODEL.split(":", 1)[1]
 
     def tool_allowlist(self) -> set[str] | None:
         """Parse AGENT_TOOL_ALLOWLIST into a set, or None when unset."""
@@ -235,15 +235,15 @@ class AgentConfig(BaseSettings):
         return names or None
 
     def substrate_skip(self) -> set[str]:
-        """Parse LLMOPS_SUBSTRATE_SKIP into a normalized set of spec names."""
-        raw = self.LLMOPS_SUBSTRATE_SKIP
+        """Parse NOSTR_MERCHANT_SUBSTRATE_SKIP into a normalized set of spec names."""
+        raw = self.NOSTR_MERCHANT_SUBSTRATE_SKIP
         if not raw:
             return set()
         names = {n.strip().lower() for n in raw.split(",") if n.strip()}
         unknown = names - set(_SUBSTRATE_DIR_BY_NAME.keys())
         if unknown:
             msg = (
-                "LLMOPS_SUBSTRATE_SKIP contains unrecognized names: "
+                "NOSTR_MERCHANT_SUBSTRATE_SKIP contains unrecognized names: "
                 f"{sorted(unknown)}. Known: {sorted(_SUBSTRATE_DIR_BY_NAME.keys())}."
             )
             raise ValueError(msg)
@@ -253,28 +253,28 @@ class AgentConfig(BaseSettings):
         """Resolve the MCP server launch specs.
 
         Resolution order:
-          1. `LLMOPS_MCP_SERVERS` JSON env var (highest priority — full override;
+          1. `NOSTR_MERCHANT_MCP_SERVERS` JSON env var (highest priority — full override;
              the skip list does NOT apply when this is used).
-          2. `LLMOPS_SUBSTRATE_ROOT` env var (local-builds mode for dev), with
-             the `LLMOPS_SUBSTRATE_SKIP` set filtered out.
+          2. `NOSTR_MERCHANT_SUBSTRATE_ROOT` env var (local-builds mode for dev), with
+             the `NOSTR_MERCHANT_SUBSTRATE_SKIP` set filtered out.
           3. `npx -y <name>` fallback, with the skip set filtered out.
         """
-        raw = self.LLMOPS_MCP_SERVERS
+        raw = self.NOSTR_MERCHANT_MCP_SERVERS
         if raw:
             try:
                 parsed = json.loads(raw)
             except json.JSONDecodeError as err:
-                msg = f"LLMOPS_MCP_SERVERS is not valid JSON: {err}"
+                msg = f"NOSTR_MERCHANT_MCP_SERVERS is not valid JSON: {err}"
                 raise ValueError(msg) from err
             if not isinstance(parsed, list):
-                msg = "LLMOPS_MCP_SERVERS must be a JSON array of server specs"
+                msg = "NOSTR_MERCHANT_MCP_SERVERS must be a JSON array of server specs"
                 raise ValueError(msg)
             return [McpServerSpec.model_validate(item) for item in parsed]
         skip = self.substrate_skip()
-        if self.LLMOPS_SUBSTRATE_ROOT is not None:
+        if self.NOSTR_MERCHANT_SUBSTRATE_ROOT is not None:
             return [
                 spec
-                for spec in _substrate_root_specs(self.LLMOPS_SUBSTRATE_ROOT)
+                for spec in _substrate_root_specs(self.NOSTR_MERCHANT_SUBSTRATE_ROOT)
                 if spec.name not in skip
             ]
         npx_defaults = [

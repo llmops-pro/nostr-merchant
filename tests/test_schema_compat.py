@@ -34,7 +34,7 @@ from pydantic_ai.mcp import MCPServerStdio
 from pydantic_ai.profiles.openai import OpenAIJsonSchemaTransformer
 from pydantic_ai.providers.anthropic import AnthropicJsonSchemaTransformer
 
-from llmops_agent.config import (
+from nostr_merchant.config import (
     _SUBSTRATE_DIR_BY_NAME,
     McpServerSpec,
     _substrate_root_specs,

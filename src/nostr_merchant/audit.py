@@ -1,4 +1,4 @@
-"""NDJSON audit log for llmops-agent.
+"""NDJSON audit log for nostr-merchant.
 
 Same shape as the substrate MCP servers' audit logs so that tailing the
 agent + MCP audit logs side by side reads coherently. One JSON object per
@@ -85,7 +85,7 @@ class AuditLog:
                 import sys
 
                 print(
-                    f"llmops-agent: audit append failed ({type(err).__name__}: {err})",
+                    f"nostr-merchant: audit append failed ({type(err).__name__}: {err})",
                     file=sys.stderr,
                 )
 

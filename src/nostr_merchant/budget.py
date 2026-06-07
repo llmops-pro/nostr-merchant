@@ -5,7 +5,7 @@ agent layer is compromised, the wallet layer still holds the line. Same
 philosophy as the kind allowlist / read-only / two-step-confirm patterns
 in the substrate.
 
-Persistence: a JSON file (default `~/.llmops-agent/budget.json`) that records
+Persistence: a JSON file (default `~/.nostr-merchant/budget.json`) that records
 every settled spend with timestamp + amount + tool name. Reads aggregate the
 file on demand (rolling-window math at query time, not at write time). The
 file is small in any realistic agent lifetime — bounded by the per-day cap,
