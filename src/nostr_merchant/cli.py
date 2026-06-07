@@ -26,6 +26,7 @@ from . import __version__
 from .budget import BudgetTracker
 from .config import AgentConfig
 from .mcp_servers import doctor_check
+from .workflows.engagement import run_inbox
 from .workflows.research import run_research
 
 app = typer.Typer(
@@ -138,6 +139,68 @@ def ask(
     )
     console.print(table)
     console.print(f"[dim]Audit log: {config.AGENT_AUDIT_PATH}[/dim]")
+
+
+@app.command()
+def inbox(
+    since: Annotated[
+        int,
+        typer.Option("--since", "-s", help="Look back this many hours."),
+    ] = 48,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-l", help="Max inbound items to triage."),
+    ] = 20,
+) -> None:
+    """Triage replies/mentions on your recent NOSTR posts and draft responses.
+
+    READ-ONLY: the agent is restricted to nostr-ops-mcp's read tools, so it cannot
+    publish — it produces a review queue of drafts. You post the approved ones yourself.
+    """
+    config = _load_config()
+    console.print(
+        Panel(
+            f"[bold]Gathering engagement — last {since}h, up to {limit} items[/bold]\n\n"
+            f"[dim]model: {config.NOSTR_MERCHANT_MODEL}  ·  "
+            f"READ-ONLY (drafts only — nothing is published)[/dim]",
+            title="nostr-merchant inbox",
+            border_style="cyan",
+        ),
+    )
+    try:
+        result = asyncio.run(
+            run_inbox(
+                config=config,
+                since_hours=since,
+                limit=limit,
+                on_progress=lambda msg: console.print(f"[dim]{msg}[/dim]"),
+            ),
+        )
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrupted.[/yellow]")
+        raise typer.Exit(code=130) from None
+    except Exception as err:
+        console.print(
+            Panel(
+                f"[red]{type(err).__name__}: {err}[/red]\n\n"
+                f"[dim]Audit log: {config.AGENT_AUDIT_PATH}[/dim]",
+                title="inbox error",
+                border_style="red",
+            ),
+        )
+        raise typer.Exit(code=1) from err
+
+    console.print(
+        Panel(
+            result.queue,
+            title=f"engagement queue — {result.item_count} item(s), drafts only (nothing posted)",
+            border_style="green",
+        ),
+    )
+    console.print(
+        "[dim]v1 is read-only — nothing was published. Post the replies you approve "
+        "yourself (an approval-gated `inbox --post` is the next step).[/dim]",
+    )
 
 
 @app.command()
