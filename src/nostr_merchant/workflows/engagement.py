@@ -18,8 +18,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -149,6 +150,46 @@ def _e_tags(ev: dict[str, Any]) -> list[str]:
     return out
 
 
+def load_replied_ledger(path: Path) -> set[str]:
+    """Read the persistent set of event ids we've ever replied to.
+
+    Stored as NDJSON (one `{"event_id": ..., "ts": ...}` per line) so appends are atomic and a
+    single corrupt line can never wipe the ledger. Missing file → empty set.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return set()
+    out: set[str] = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue  # tolerate a corrupt line; keep the rest of the ledger
+        eid = rec.get("event_id") if isinstance(rec, dict) else None
+        if isinstance(eid, str) and eid:
+            out.add(eid)
+    return out
+
+
+def append_replied_ledger(path: Path, event_ids: Iterable[str]) -> None:
+    """Append event ids we've just replied to. Best-effort: IO failure never breaks a post run."""
+    new = [e for e in dict.fromkeys(event_ids) if e]  # de-dupe, preserve order, drop empties
+    if not new:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        now = int(time.time())
+        lines = "".join(json.dumps({"event_id": e, "ts": now}) + "\n" for e in new)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(lines)
+    except OSError:
+        pass  # the relay-derived `answered` set still covers the in-window case
+
+
 def _nostr_server(config: AgentConfig) -> MCPServerStdio:
     spec = next((s for s in config.mcp_server_specs() if s.name == "nostr"), None)
     if spec is None:
@@ -219,7 +260,13 @@ async def _gather(
             "my outbound notes",
             {"authors": [mypub], "kinds": [NOTE_KIND], "since": since_ts, "limit": 200},
         )
+        # Window-bounded dedup (relay-derived) plus the persistent ledger (survives the --since
+        # window and relay flakiness).
         answered: set[str] = {eid for ev in my_outbound for eid in _e_tags(ev)}
+        ledger = load_replied_ledger(config.AGENT_REPLIED_PATH)
+        if ledger:
+            report(f"  ledger: {len(ledger)} already-replied")
+        answered |= ledger
 
         seen: set[str] = set()
         items: list[InboxItem] = []
@@ -308,6 +355,7 @@ async def _post_replies(
     audit = AuditLog(config.AGENT_AUDIT_PATH)
     server = _nostr_server(config)
     out: list[dict[str, Any]] = []
+    posted_ids: list[str] = []
     async with asyncio.timeout(GATHER_TIMEOUT_S), server:
         await server.list_tools()  # prime the client
         for event_id, author_pubkey, text in approved:
@@ -322,6 +370,8 @@ async def _post_replies(
                 )
                 parsed = json.loads(_text(raw) or "{}")
                 ok = isinstance(parsed, dict) and "error" not in parsed
+                if ok:
+                    posted_ids.append(event_id)
                 out.append({"reply_to": event_id, "ok": ok, "result": parsed})
                 await audit.record_tool_call(
                     tool=POST_TOOL,
@@ -338,6 +388,9 @@ async def _post_replies(
                     input={"reply_to_event_id": event_id},
                     error=f"{type(err).__name__}: {err}",
                 )
+    # Persist the parents we successfully answered so they never re-surface, regardless of
+    # how far back a future --since reaches or whether relays still serve our outbound notes.
+    append_replied_ledger(config.AGENT_REPLIED_PATH, posted_ids)
     return out
 
 

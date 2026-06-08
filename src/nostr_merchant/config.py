@@ -35,6 +35,10 @@ def _default_budget_path() -> Path:
     return Path.home() / ".nostr-merchant" / "budget.json"
 
 
+def _default_replied_path() -> Path:
+    return Path.home() / ".nostr-merchant" / "replied.json"
+
+
 class AgentConfig(BaseSettings):
     """All env-driven config for nostr-merchant.
 
@@ -150,6 +154,7 @@ class AgentConfig(BaseSettings):
     # ---- Logging / persistence paths ----
     AGENT_AUDIT_PATH: Path = Field(default_factory=_default_audit_path)
     AGENT_BUDGET_PATH: Path = Field(default_factory=_default_budget_path)
+    AGENT_REPLIED_PATH: Path = Field(default_factory=_default_replied_path)
     AGENT_LOG_LEVEL: str = Field(default="INFO")
 
     # ---- Validators ----
