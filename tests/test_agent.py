@@ -81,6 +81,20 @@ class TestBuildAgent:
         assert toolsets is not None
 
 
+class TestResolveModel:
+    def test_returns_config_model_when_no_override(self) -> None:
+        from nostr_merchant.agent import _resolve_model
+
+        cfg = make_config(NOSTR_MERCHANT_MODEL="anthropic:claude-haiku-4-5-20251001")
+        assert _resolve_model(cfg) == "anthropic:claude-haiku-4-5-20251001"
+
+    def test_override_wins_over_config_model(self) -> None:
+        from nostr_merchant.agent import _resolve_model
+
+        cfg = make_config(NOSTR_MERCHANT_MODEL="anthropic:claude-haiku-4-5-20251001")
+        assert _resolve_model(cfg, "anthropic:claude-sonnet-4-6") == "anthropic:claude-sonnet-4-6"
+
+
 # --------------------------------------------------------------------------- #
 # make_process_tool_call
 # --------------------------------------------------------------------------- #

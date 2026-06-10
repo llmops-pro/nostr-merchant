@@ -98,8 +98,11 @@ state.
 """
 
 
-def _resolve_model(config: AgentConfig) -> Model | KnownModelName | str:
-    """Turn the NOSTR_MERCHANT_MODEL env string into something `Agent(model=...)` accepts.
+def _resolve_model(
+    config: AgentConfig,
+    override: str | None = None,
+) -> Model | KnownModelName | str:
+    """Turn a '<provider>:<model>' string into something `Agent(model=...)` accepts.
 
     Pydantic AI accepts the model-string form directly via `infer_model`,
     so we just pass through. Provider-specific env vars (ANTHROPIC_API_KEY,
@@ -107,9 +110,12 @@ def _resolve_model(config: AgentConfig) -> Model | KnownModelName | str:
     classes from `os.environ` — but values from our `.env` file only live on
     the config object, so we bridge them across first. Without this, an `ask`
     only works if the operator manually `export`ed the keys.
+
+    `override` lets a single command (e.g. `inbox --model`) pick a different
+    model than the global NOSTR_MERCHANT_MODEL without changing the env.
     """
     config.apply_provider_env()
-    return config.NOSTR_MERCHANT_MODEL
+    return override or config.NOSTR_MERCHANT_MODEL
 
 
 def build_agent(

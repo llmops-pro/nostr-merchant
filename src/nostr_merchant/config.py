@@ -16,6 +16,31 @@ from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+KNOWN_LLM_PROVIDERS = {"ollama", "anthropic", "openai", "google-gla", "groq", "mistral"}
+
+
+def validate_model_string(v: str) -> str:
+    """Validate a '<provider>:<model>' pydantic-ai model string.
+
+    Shared by the NOSTR_MERCHANT_MODEL field validator and by CLI `--model`
+    overrides so both reject the same malformed/unknown-provider inputs.
+    """
+    if ":" not in v:
+        msg = (
+            f"model string must be of the form '<provider>:<model>' "
+            f"(e.g. 'ollama:qwen3:8b'). Got: {v!r}"
+        )
+        raise ValueError(msg)
+    provider = v.split(":", 1)[0]
+    if provider not in KNOWN_LLM_PROVIDERS:
+        msg = (
+            f"Unrecognized LLM provider {provider!r}. Known providers: "
+            f"{sorted(KNOWN_LLM_PROVIDERS)}. (If pydantic-ai added a new provider "
+            f"since this release, update nostr_merchant/config.py.)"
+        )
+        raise ValueError(msg)
+    return v
+
 
 class McpServerSpec(BaseSettings):
     """One MCP server launch spec — name, command, args, optional cwd/env."""
@@ -162,22 +187,7 @@ class AgentConfig(BaseSettings):
     @field_validator("NOSTR_MERCHANT_MODEL")
     @classmethod
     def _validate_model_string(cls, v: str) -> str:
-        if ":" not in v:
-            msg = (
-                f"NOSTR_MERCHANT_MODEL must be of the form '<provider>:<model>' "
-                f"(e.g. 'ollama:qwen3:8b'). Got: {v!r}"
-            )
-            raise ValueError(msg)
-        provider = v.split(":", 1)[0]
-        known = {"ollama", "anthropic", "openai", "google-gla", "groq", "mistral"}
-        if provider not in known:
-            msg = (
-                f"Unrecognized LLM provider {provider!r}. Known providers: "
-                f"{sorted(known)}. (If pydantic-ai added a new provider since "
-                f"this release, update nostr_merchant/config.py.)"
-            )
-            raise ValueError(msg)
-        return v
+        return validate_model_string(v)
 
     @field_validator("AGENT_LOG_LEVEL")
     @classmethod

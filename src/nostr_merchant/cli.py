@@ -24,7 +24,7 @@ from rich.table import Table
 
 from . import __version__
 from .budget import BudgetTracker
-from .config import AgentConfig
+from .config import AgentConfig, validate_model_string
 from .mcp_servers import doctor_check
 from .workflows.engagement import _post_replies, run_inbox
 from .workflows.research import run_research
@@ -155,6 +155,16 @@ def inbox(
         bool,
         typer.Option("--post", help="Interactively approve + publish replies (default: read-only)."),
     ] = False,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Override the LLM for drafting only (e.g. 'anthropic:claude-sonnet-4-6'). "
+            "Falls back to NOSTR_MERCHANT_MODEL. Drafting is quality-sensitive — a stronger "
+            "model than the agent loop's is often worth it here.",
+        ),
+    ] = None,
 ) -> None:
     """Triage replies/mentions on your recent NOSTR posts and draft responses.
 
@@ -163,6 +173,12 @@ def inbox(
     then publish the approved replies as NIP-10 replies. Draft, don't autobot — you approve each.
     """
     config = _load_config()
+    if model is not None:
+        try:
+            model = validate_model_string(model)
+        except ValueError as err:
+            console.print(f"[red]--model: {err}[/red]")
+            raise typer.Exit(code=2) from err
     mode = (
         "INTERACTIVE POST (you approve each before it publishes)"
         if post
@@ -171,7 +187,7 @@ def inbox(
     console.print(
         Panel(
             f"[bold]Gathering engagement — last {since}h, up to {limit} items[/bold]\n\n"
-            f"[dim]model: {config.NOSTR_MERCHANT_MODEL}  ·  {mode}[/dim]",
+            f"[dim]model: {model or config.NOSTR_MERCHANT_MODEL}  ·  {mode}[/dim]",
             title="nostr-merchant inbox",
             border_style="cyan",
         ),
@@ -182,6 +198,7 @@ def inbox(
                 config=config,
                 since_hours=since,
                 limit=limit,
+                model_override=model,
                 on_progress=lambda msg: console.print(f"[dim]{msg}[/dim]"),
             ),
         )

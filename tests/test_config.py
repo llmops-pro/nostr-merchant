@@ -52,6 +52,27 @@ class TestModelString:
             make(NOSTR_MERCHANT_MODEL="madeup:model")
 
 
+class TestValidateModelString:
+    """The standalone helper shared by the field validator and CLI --model."""
+
+    def test_accepts_valid(self) -> None:
+        from nostr_merchant.config import validate_model_string
+
+        assert validate_model_string("anthropic:claude-sonnet-4-6") == "anthropic:claude-sonnet-4-6"
+
+    def test_rejects_missing_colon(self) -> None:
+        from nostr_merchant.config import validate_model_string
+
+        with pytest.raises(ValueError, match="<provider>:<model>"):
+            validate_model_string("sonnet")
+
+    def test_rejects_unknown_provider(self) -> None:
+        from nostr_merchant.config import validate_model_string
+
+        with pytest.raises(ValueError, match="Unrecognized LLM provider"):
+            validate_model_string("madeup:model")
+
+
 class TestBudgetInvariants:
     def test_per_task_cannot_exceed_per_day(self) -> None:
         with pytest.raises(ValidationError, match="AGENT_MAX_SATS_PER_TASK"):

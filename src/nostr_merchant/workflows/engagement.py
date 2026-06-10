@@ -300,10 +300,14 @@ async def _gather(
         return len(my_posts), items[:limit]
 
 
-async def _draft(items: list[InboxItem], config: AgentConfig) -> list[DraftedReply]:
+async def _draft(
+    items: list[InboxItem],
+    config: AgentConfig,
+    model_override: str | None = None,
+) -> list[DraftedReply]:
     """One LLM call (no tools) → structured draft/skip decision per item."""
     agent: Agent[None, DraftQueue] = Agent(
-        model=_resolve_model(config),
+        model=_resolve_model(config, model_override),
         output_type=DraftQueue,
         system_prompt=DRAFT_PROMPT,
     )
@@ -399,6 +403,7 @@ async def run_inbox(
     config: AgentConfig,
     since_hours: int = 48,
     limit: int = 20,
+    model_override: str | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> InboxResult:
     """Gather open replies/mentions and draft responses. Gathering + drafting only — never posts."""
@@ -407,7 +412,7 @@ async def run_inbox(
     await audit.record_startup(
         {
             "kind": "engagement_inbox",
-            "model": config.NOSTR_MERCHANT_MODEL,
+            "model": model_override or config.NOSTR_MERCHANT_MODEL,
             "since_hours": since_hours,
             "limit": limit,
         },
@@ -438,7 +443,7 @@ async def run_inbox(
         return InboxResult(queue, [], items_by_id, since_hours, my_post_count, 0)
 
     try:
-        drafts = await _draft(items, config)
+        drafts = await _draft(items, config, model_override)
         await audit.record_llm_call(outcome="ok", input={"items": len(items)}, result={"drafts": len(drafts)})
     except Exception as err:
         await audit.record_llm_call(outcome="error", input={"items": len(items)}, error=f"{type(err).__name__}: {err}")

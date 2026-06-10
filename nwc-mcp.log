@@ -1,0 +1,2 @@
+{"ts":"2026-06-09T08:29:39.968Z","tool":"_startup","outcome":"ok","result":{"read_only":false,"daily_budget_sats":10000,"total_budget_sats":null,"max_invoice_sats":null,"require_confirm":false,"keysend_enabled":false,"allowlist_size":0}}
+{"ts":"2026-06-09T08:33:51.090Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}

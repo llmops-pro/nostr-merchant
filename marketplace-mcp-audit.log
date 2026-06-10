@@ -1,0 +1,2 @@
+{"ts":"2026-06-09T08:29:40.095Z","tool":"_startup","outcome":"ok","result":{"signer_configured":true,"signer_kind":"nsec","relay_count":6,"read_only":false,"require_confirm":false,"shopstr_cache_enabled":true,"shopstr_cache_url":"https://shopstr.store/api/db/cache-event","rate_limits":{"events":{"used":0,"limit":10}}}}
+{"ts":"2026-06-09T08:33:51.091Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
