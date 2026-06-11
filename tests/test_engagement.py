@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -14,7 +15,9 @@ from nostr_merchant.workflows.engagement import (
     _e_tags,
     _events,
     _text,
+    append_outreach_ledger,
     append_replied_ledger,
+    build_inbox_ledger_entry,
     load_replied_ledger,
     render_queue,
 )
@@ -138,3 +141,66 @@ class TestInboxCommandRegistered:
         assert "--since" in result.stdout
         assert "--limit" in result.stdout
         assert "--post" in result.stdout
+
+
+class TestDraftedReplyClassification:
+    def test_business_relevant_defaults_false(self) -> None:
+        d = DraftedReply(event_id="x", action="draft", text="hi")
+        assert d.business_relevant is False
+
+    def test_business_relevant_settable(self) -> None:
+        d = DraftedReply(event_id="x", action="draft", text="hi", business_relevant=True)
+        assert d.business_relevant is True
+
+
+class TestBuildInboxLedgerEntry:
+    def test_entry_shape_and_counts(self) -> None:
+        posted = [
+            {"event_id": "aa" * 32, "to": "bb" * 32, "business_relevant": True, "excerpt": "real q"},
+            {"event_id": "cc" * 32, "to": "dd" * 32, "business_relevant": False, "excerpt": "banter"},
+        ]
+        e = build_inbox_ledger_entry(model="anthropic:claude-sonnet-4-6", posted=posted)
+        assert e["type"] == "post"
+        assert e["channel"] == "nostr"
+        assert e["status"] == "done"
+        assert e["auto_logged"] is True
+        assert e["id"].endswith(tuple("0123456789"))  # date-inbox-HHMMSS
+        assert "1 business-relevant, 1 social" in e["summary"]
+        assert len(e["replies"]) == 2
+        assert e["replies"][0]["business_relevant"] is True
+        assert set(e["links"]) == {"reply_1", "reply_2"}
+
+
+class TestAppendOutreachLedger:
+    def _seed(self, p: Path) -> None:
+        p.write_text(
+            json.dumps({"schema": "nostr-business-ledger/v1", "entries": [{"id": "old"}]}),
+            encoding="utf-8",
+        )
+
+    def test_prepends_newest_first(self, tmp_path: Path) -> None:
+        p = tmp_path / "ledger.json"
+        self._seed(p)
+        status = append_outreach_ledger(p, {"id": "new"})
+        assert "ledger += new" in status
+        data = json.loads(p.read_text(encoding="utf-8"))
+        assert [e["id"] for e in data["entries"]] == ["new", "old"]
+
+    def test_missing_file_skipped_not_created(self, tmp_path: Path) -> None:
+        p = tmp_path / "nope.json"
+        status = append_outreach_ledger(p, {"id": "new"})
+        assert "not found" in status
+        assert not p.exists()
+
+    def test_corrupt_ledger_not_overwritten(self, tmp_path: Path) -> None:
+        p = tmp_path / "ledger.json"
+        p.write_text("{ this is not json", encoding="utf-8")
+        status = append_outreach_ledger(p, {"id": "new"})
+        assert "unreadable" in status
+        assert p.read_text(encoding="utf-8") == "{ this is not json"  # untouched
+
+    def test_unexpected_shape_skipped(self, tmp_path: Path) -> None:
+        p = tmp_path / "ledger.json"
+        p.write_text(json.dumps({"no_entries": True}), encoding="utf-8")
+        status = append_outreach_ledger(p, {"id": "new"})
+        assert "shape unexpected" in status

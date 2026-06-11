@@ -181,6 +181,10 @@ class AgentConfig(BaseSettings):
     AGENT_BUDGET_PATH: Path = Field(default_factory=_default_budget_path)
     AGENT_REPLIED_PATH: Path = Field(default_factory=_default_replied_path)
     AGENT_LOG_LEVEL: str = Field(default="INFO")
+    # If set, `inbox --post` appends a one-entry-per-session summary to this outreach ledger
+    # (nostr-business-ledger/v1 JSON). Unset (default) = no ledger writes. The tool logs FACTS
+    # only — Claude Code / the operator review + annotate the business-relevant ones.
+    NOSTR_MERCHANT_LEDGER_PATH: Path | None = Field(default=None)
 
     # ---- Validators ----
 

@@ -54,6 +54,9 @@ generic "thanks!".
 - action="draft", `text` = your reply — for items worth a genuine response.
 - action="skip", `reason` = one line — for spam, bots, one-word low-effort replies, truncated
   auto-summaries, or anything you'd have nothing real to add to.
+- `business_relevant` = true ONLY when a drafted reply advances the business (agent payments,
+  NWC/L402, the kit, the playbook, a sale, a grant, a genuine prospect or technical question
+  about what we build); false for social/community banter or off-topic chat.
 
 Copy each item's event_id EXACTLY into your result.
 """
@@ -66,6 +69,14 @@ class DraftedReply(BaseModel):
     action: Literal["draft", "skip"]
     text: str = Field(default="", description="The reply, in the operator's voice (when drafting).")
     reason: str = Field(default="", description="One-line reason (when skipping).")
+    business_relevant: bool = Field(
+        default=False,
+        description=(
+            "True if this reply advances the business (agent payments, NWC/L402, the kit, the "
+            "playbook, a sale, a grant, a real prospect); False for social/community banter, "
+            "off-topic chat, or anything not business-advancing."
+        ),
+    )
 
 
 class DraftQueue(BaseModel):
@@ -188,6 +199,79 @@ def append_replied_ledger(path: Path, event_ids: Iterable[str]) -> None:
             fh.write(lines)
     except OSError:
         pass  # the relay-derived `answered` set still covers the in-window case
+
+
+def build_inbox_ledger_entry(*, model: str, posted: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a nostr-business-ledger/v1 entry summarising one `inbox --post` session.
+
+    `posted` is the list of SUCCESSFULLY published replies, each a dict with keys `event_id`,
+    `to` (recipient pubkey hex), `business_relevant` (bool), and `excerpt`. FACTS only — Claude
+    Code / the operator annotate the business-relevant ones later (judgment stays human/Claude).
+    """
+    now = time.localtime()
+    date = time.strftime("%Y-%m-%d", now)
+    sid = time.strftime("%H%M%S", now)
+    biz = sum(1 for p in posted if p.get("business_relevant"))
+    soc = len(posted) - biz
+    plural = "y" if len(posted) == 1 else "ies"
+    links = {
+        f"reply_{i + 1}": f"{p.get('event_id', '')} (to {str(p.get('to', ''))[:12]}…)"
+        for i, p in enumerate(posted)
+    }
+    replies = [
+        {
+            "event_id": p.get("event_id", ""),
+            "to": str(p.get("to", ""))[:12],
+            "business_relevant": bool(p.get("business_relevant")),
+            "excerpt": str(p.get("excerpt", ""))[:120],
+        }
+        for p in posted
+    ]
+    return {
+        "id": f"{date}-inbox-{sid}",
+        "date": date,
+        "type": "post",
+        "channel": "nostr",
+        "status": "done",
+        "summary": (
+            f"Inbox pass ({model}): {len(posted)} repl{plural} posted "
+            f"({biz} business-relevant, {soc} social). Auto-logged by `inbox --post`."
+        ),
+        "links": links,
+        "auto_logged": True,
+        "replies": replies,
+        "context": (
+            "Auto-logged by `nostr-merchant inbox --post` — facts only. Claude Code / the operator "
+            "review and annotate the business-relevant ones (flags, accuracy checks, follow-ups). "
+            "Social/banter replies are tagged business_relevant=false so the brief can hide them."
+        ),
+        "action_items": [],
+        "next_check": None,
+    }
+
+
+def append_outreach_ledger(path: Path, entry: dict[str, Any]) -> str:
+    """Prepend `entry` to the outreach ledger's `entries` array (newest-first), atomically.
+
+    Defensive: never overwrites a ledger it can't parse (protects the hand-curated file).
+    Returns a short status string; never raises into the caller.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return f"ledger not found at {path} — skipped"
+    except (OSError, ValueError) as err:
+        return f"ledger unreadable ({type(err).__name__}) — skipped, not overwritten"
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+        return "ledger shape unexpected (no 'entries' list) — skipped"
+    data["entries"].insert(0, entry)
+    try:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError as err:
+        return f"ledger write failed ({type(err).__name__})"
+    return f"ledger += {entry.get('id', '?')}"
 
 
 def _nostr_server(config: AgentConfig) -> MCPServerStdio:

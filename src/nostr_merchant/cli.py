@@ -26,7 +26,12 @@ from . import __version__
 from .budget import BudgetTracker
 from .config import AgentConfig, validate_model_string
 from .mcp_servers import doctor_check
-from .workflows.engagement import _post_replies, run_inbox
+from .workflows.engagement import (
+    _post_replies,
+    append_outreach_ledger,
+    build_inbox_ledger_entry,
+    run_inbox,
+)
 from .workflows.research import run_research
 
 app = typer.Typer(
@@ -240,6 +245,8 @@ def inbox(
 
     console.print(f"\n[bold]{len(drafts)} draft(s) to review[/bold] · {skipped} auto-skipped\n")
     approved: list[tuple[str, str, str]] = []
+    # event_id -> {to, business_relevant, excerpt} for the optional ledger auto-log.
+    approved_meta: dict[str, dict[str, object]] = {}
     for i, d in enumerate(drafts, 1):
         it = result.items_by_id[d.event_id]
         console.print(
@@ -255,12 +262,15 @@ def inbox(
         if choice == "q":
             console.print("[yellow]Stopping review.[/yellow]")
             break
+        meta = {"to": it.author_pubkey, "business_relevant": d.business_relevant, "excerpt": it.content}
         if choice == "p":
             approved.append((d.event_id, it.author_pubkey, d.text))
+            approved_meta[d.event_id] = meta
         elif choice == "e":
             edited = typer.prompt("  your reply", default=d.text)
             if edited.strip():
                 approved.append((d.event_id, it.author_pubkey, edited))
+                approved_meta[d.event_id] = meta
 
     if not approved:
         console.print("[yellow]Nothing approved — nothing posted.[/yellow]")
@@ -302,6 +312,26 @@ def inbox(
         )
     console.print(table)
     console.print(f"[dim]{published}/{len(post_results)} published · audit: {config.AGENT_AUDIT_PATH}[/dim]")
+
+    # Optional: auto-append a one-entry-per-session summary to the outreach ledger (facts only;
+    # Claude Code / the operator annotate the business-relevant ones). Opt-in via config.
+    if config.NOSTR_MERCHANT_LEDGER_PATH is not None and published > 0:
+        posted = [
+            {
+                "event_id": eid,
+                "to": approved_meta[eid]["to"],
+                "business_relevant": approved_meta[eid]["business_relevant"],
+                "excerpt": approved_meta[eid]["excerpt"],
+            }
+            for r in post_results
+            if r.get("ok") and (eid := str(r.get("reply_to", ""))) in approved_meta
+        ]
+        if posted:
+            entry = build_inbox_ledger_entry(
+                model=model or config.NOSTR_MERCHANT_MODEL, posted=posted,
+            )
+            status = append_outreach_ledger(config.NOSTR_MERCHANT_LEDGER_PATH, entry)
+            console.print(f"[dim]{status}[/dim]")
 
 
 @app.command()
