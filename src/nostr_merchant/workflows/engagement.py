@@ -204,9 +204,10 @@ def append_replied_ledger(path: Path, event_ids: Iterable[str]) -> None:
 def build_inbox_ledger_entry(*, model: str, posted: list[dict[str, Any]]) -> dict[str, Any]:
     """Build a nostr-business-ledger/v1 entry summarising one `inbox --post` session.
 
-    `posted` is the list of SUCCESSFULLY published replies, each a dict with keys `event_id`,
-    `to` (recipient pubkey hex), `business_relevant` (bool), and `excerpt`. FACTS only — Claude
-    Code / the operator annotate the business-relevant ones later (judgment stays human/Claude).
+    `posted` is the list of SUCCESSFULLY published replies, each a dict with keys: `event_id`
+    (OUR posted reply), `reply_to` (the inbound event we replied to), `to` (inbound author hex),
+    `business_relevant` (bool), `reply_text` (what we said), `in_reply_to_excerpt` (what they
+    said). FACTS only — Claude Code / the operator annotate the business-relevant ones later.
     """
     now = time.localtime()
     date = time.strftime("%Y-%m-%d", now)
@@ -215,15 +216,20 @@ def build_inbox_ledger_entry(*, model: str, posted: list[dict[str, Any]]) -> dic
     soc = len(posted) - biz
     plural = "y" if len(posted) == 1 else "ies"
     links = {
-        f"reply_{i + 1}": f"{p.get('event_id', '')} (to {str(p.get('to', ''))[:12]}…)"
+        f"reply_{i + 1}": (
+            f"{p.get('event_id', '')} → reply to {str(p.get('reply_to', ''))[:12]}… "
+            f"(from {str(p.get('to', ''))[:12]}…)"
+        )
         for i, p in enumerate(posted)
     }
     replies = [
         {
-            "event_id": p.get("event_id", ""),
+            "event_id": p.get("event_id", ""),  # our reply
+            "reply_to": p.get("reply_to", ""),  # the inbound event
             "to": str(p.get("to", ""))[:12],
             "business_relevant": bool(p.get("business_relevant")),
-            "excerpt": str(p.get("excerpt", ""))[:120],
+            "reply_text": str(p.get("reply_text", ""))[:200],
+            "in_reply_to_excerpt": str(p.get("in_reply_to_excerpt", ""))[:120],
         }
         for p in posted
     ]

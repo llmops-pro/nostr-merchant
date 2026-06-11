@@ -245,7 +245,8 @@ def inbox(
 
     console.print(f"\n[bold]{len(drafts)} draft(s) to review[/bold] · {skipped} auto-skipped\n")
     approved: list[tuple[str, str, str]] = []
-    # event_id -> {to, business_relevant, excerpt} for the optional ledger auto-log.
+    # reply_to (inbound event id) -> {to, business_relevant, reply_text, in_reply_to_excerpt}
+    # for the optional ledger auto-log.
     approved_meta: dict[str, dict[str, object]] = {}
     for i, d in enumerate(drafts, 1):
         it = result.items_by_id[d.event_id]
@@ -262,15 +263,19 @@ def inbox(
         if choice == "q":
             console.print("[yellow]Stopping review.[/yellow]")
             break
-        meta = {"to": it.author_pubkey, "business_relevant": d.business_relevant, "excerpt": it.content}
+        base = {
+            "to": it.author_pubkey,
+            "business_relevant": d.business_relevant,
+            "in_reply_to_excerpt": it.content,
+        }
         if choice == "p":
             approved.append((d.event_id, it.author_pubkey, d.text))
-            approved_meta[d.event_id] = meta
+            approved_meta[d.event_id] = {**base, "reply_text": d.text}
         elif choice == "e":
             edited = typer.prompt("  your reply", default=d.text)
             if edited.strip():
                 approved.append((d.event_id, it.author_pubkey, edited))
-                approved_meta[d.event_id] = meta
+                approved_meta[d.event_id] = {**base, "reply_text": edited}
 
     if not approved:
         console.print("[yellow]Nothing approved — nothing posted.[/yellow]")
@@ -316,16 +321,24 @@ def inbox(
     # Optional: auto-append a one-entry-per-session summary to the outreach ledger (facts only;
     # Claude Code / the operator annotate the business-relevant ones). Opt-in via config.
     if config.NOSTR_MERCHANT_LEDGER_PATH is not None and published > 0:
-        posted = [
-            {
-                "event_id": eid,
-                "to": approved_meta[eid]["to"],
-                "business_relevant": approved_meta[eid]["business_relevant"],
-                "excerpt": approved_meta[eid]["excerpt"],
-            }
-            for r in post_results
-            if r.get("ok") and (eid := str(r.get("reply_to", ""))) in approved_meta
-        ]
+        posted: list[dict[str, object]] = []
+        for r in post_results:
+            reply_to = str(r.get("reply_to", ""))
+            if not r.get("ok") or reply_to not in approved_meta:
+                continue
+            res = r.get("result")
+            our_id = str(res.get("event_id", "")) if isinstance(res, dict) else ""
+            m = approved_meta[reply_to]
+            posted.append(
+                {
+                    "event_id": our_id,  # OUR posted reply (not the inbound)
+                    "reply_to": reply_to,  # the inbound event we replied to
+                    "to": m["to"],
+                    "business_relevant": m["business_relevant"],
+                    "reply_text": m["reply_text"],
+                    "in_reply_to_excerpt": m["in_reply_to_excerpt"],
+                },
+            )
         if posted:
             entry = build_inbox_ledger_entry(
                 model=model or config.NOSTR_MERCHANT_MODEL, posted=posted,

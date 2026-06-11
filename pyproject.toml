@@ -1,6 +1,6 @@
 [project]
 name = "nostr-merchant"
-version = "0.3.3"
+version = "0.3.4"
 description = "A local-first AI agent that runs a business on NOSTR: checks its Lightning wallet, publishes notes and listings, answers encrypted DMs, and pays for paywalled MCP tools over NWC — all under sats budget caps it can't exceed. Drives five MCP servers (nwc-mcp, nostr-ops-mcp, marketplace-mcp, albyhub-admin-mcp, paywall-mcp). Ollama-first, API-pluggable. Built on pydantic-ai — no LangChain. MIT."
 readme = "README.md"
 license = "MIT"

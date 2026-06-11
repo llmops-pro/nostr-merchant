@@ -156,8 +156,14 @@ class TestDraftedReplyClassification:
 class TestBuildInboxLedgerEntry:
     def test_entry_shape_and_counts(self) -> None:
         posted = [
-            {"event_id": "aa" * 32, "to": "bb" * 32, "business_relevant": True, "excerpt": "real q"},
-            {"event_id": "cc" * 32, "to": "dd" * 32, "business_relevant": False, "excerpt": "banter"},
+            {
+                "event_id": "aa" * 32, "reply_to": "ee" * 32, "to": "bb" * 32,
+                "business_relevant": True, "reply_text": "our reply", "in_reply_to_excerpt": "their q",
+            },
+            {
+                "event_id": "cc" * 32, "reply_to": "ff" * 32, "to": "dd" * 32,
+                "business_relevant": False, "reply_text": "lol", "in_reply_to_excerpt": "banter",
+            },
         ]
         e = build_inbox_ledger_entry(model="anthropic:claude-sonnet-4-6", posted=posted)
         assert e["type"] == "post"
@@ -167,6 +173,10 @@ class TestBuildInboxLedgerEntry:
         assert e["id"].endswith(tuple("0123456789"))  # date-inbox-HHMMSS
         assert "1 business-relevant, 1 social" in e["summary"]
         assert len(e["replies"]) == 2
+        # the 0.3.4 fix: event_id is OUR reply, reply_to is the inbound event, plus our text
+        assert e["replies"][0]["event_id"] == "aa" * 32
+        assert e["replies"][0]["reply_to"] == "ee" * 32
+        assert e["replies"][0]["reply_text"] == "our reply"
         assert e["replies"][0]["business_relevant"] is True
         assert set(e["links"]) == {"reply_1", "reply_2"}
 
