@@ -1,2 +1,3 @@
 {"ts":"2026-06-09T08:29:40.089Z","tool":"_startup","outcome":"ok","result":{"signer_configured":true,"signer_kind":"nsec","relay_count":6,"read_only":false,"dm_tools_enabled":false,"allowed_kinds":[0,1,5,9,30023],"dm_allowlist_size":0,"require_confirm":false,"rate_limits":{"events":{"used":0,"limit":10},"dms":{"used":0,"limit":5}}}}
 {"ts":"2026-06-09T08:33:51.090Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
+{"ts":"2026-06-11T06:10:42.789Z","tool":"_startup","outcome":"ok","result":{"signer_configured":true,"signer_kind":"nsec","relay_count":6,"read_only":false,"dm_tools_enabled":false,"allowed_kinds":[0,1,5,9,30023],"dm_allowlist_size":0,"require_confirm":false,"rate_limits":{"events":{"used":0,"limit":10},"dms":{"used":0,"limit":5}}}}
