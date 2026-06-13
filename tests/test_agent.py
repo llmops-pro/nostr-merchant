@@ -127,6 +127,18 @@ async def _call_tool_paywall_5000(name: str, args: dict[str, Any]) -> dict[str, 
     }
 
 
+async def _call_tool_l402_search(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Stub for l402-search-mcp's invoice shape: `payment_required: true`
+    (no `error` key), preimage-based retry."""
+    return {
+        "payment_required": True,
+        "invoice": "lnbc500n1p...",
+        "payment_hash": "c" * 64,
+        "amount_sats": 50,
+        "next_step": "pay, then retry with payment_preimage from the pay result",
+    }
+
+
 async def _call_tool_pay_invoice_success(
     name: str, args: dict[str, Any]
 ) -> dict[str, Any]:
@@ -237,6 +249,45 @@ class TestProcessToolCallPaywallEnforcement:
         assert isinstance(result, dict)
         assert result.get("error") == "payment_required"
         assert result.get("amount_sats") == 21
+
+    @pytest.mark.asyncio
+    async def test_l402_search_invoice_shape_is_recognized(
+        self, budget_path: Path, audit_path: Path
+    ) -> None:
+        """l402-search uses `{payment_required: true}` not `{error: ...}` — the
+        agent-layer cap must still apply, and the invoice must pass through."""
+        process = make_process_tool_call(
+            budget=BudgetTracker(
+                path=budget_path, max_per_task_sats=100, max_per_day_sats=1000
+            ),
+            audit=AuditLog(audit_path),
+            max_tool_price=10,  # below the 50-sat search price
+            tool_allowlist=None,
+            read_only=False,
+        )
+        result = await process(None, _call_tool_l402_search, "search", {})
+        # price 50 > cap 10 → must be refused at the agent layer
+        assert isinstance(result, dict)
+        assert result.get("error") == "agent_max_tool_price_exceeded"
+        assert result.get("price_sats") == 50
+
+    @pytest.mark.asyncio
+    async def test_l402_search_invoice_passes_under_cap(
+        self, budget_path: Path, audit_path: Path
+    ) -> None:
+        process = make_process_tool_call(
+            budget=BudgetTracker(
+                path=budget_path, max_per_task_sats=100, max_per_day_sats=1000
+            ),
+            audit=AuditLog(audit_path),
+            max_tool_price=500,
+            tool_allowlist=None,
+            read_only=False,
+        )
+        result = await process(None, _call_tool_l402_search, "search", {})
+        assert isinstance(result, dict)
+        assert result.get("payment_required") is True
+        assert result.get("amount_sats") == 50
 
     @pytest.mark.asyncio
     async def test_price_above_max_tool_price_refused(

@@ -66,9 +66,17 @@ To complete the call, you MUST:
    trying to extract. If the price seems unreasonable for the task, REFUSE
    and explain to the user — don't burn sats reflexively.
 2. Pay the invoice by calling `nwc_pay_invoice` with the `invoice` string.
-3. Once paid, RETRY the original tool with the SAME args PLUS the
-   `payment_hash` from step 1.
-4. The second call returns the upstream tool's real result.
+   This returns a `preimage` and the `payment_hash`.
+3. Once paid, RETRY the original tool with the SAME args PLUS the payment
+   proof. READ the invoice response's `next_step` field — it tells you which
+   proof the tool wants:
+     - paywall tools want `payment_hash` (from the invoice response).
+     - the `search` tool (l402-search) wants `payment_preimage` (the
+       `preimage` returned by `nwc_pay_invoice`).
+4. The second call returns the tool's real result.
+
+When in doubt, the invoice response's `next_step` instruction is
+authoritative — follow it literally.
 
 NEVER claim a fact obtained from a paid tool without including a receipt in
 your final answer. Receipts list: tool name, sats paid, timestamp, payment_hash
@@ -304,22 +312,33 @@ def _is_likely_priced(tool_name: str) -> bool:
     return tool_name.startswith("nwc_pay") or tool_name == "nwc_multi_pay_invoice"
 
 
+def _is_payment_required(d: dict[str, Any]) -> bool:
+    """True if a dict is an invoice/payment-required response.
+
+    Two conventions in our substrate:
+      - paywall-mcp: ``{"error": "payment_required", ...}``
+      - l402-search-mcp: ``{"payment_required": true, ...}``
+    Both carry ``invoice`` / ``payment_hash`` / ``amount_sats``.
+    """
+    return d.get("error") == "payment_required" or d.get("payment_required") is True
+
+
 def _extract_payment_required(result: Any) -> dict[str, Any] | None:
-    """Return the inner `payment_required` payload if the result is one, else None.
+    """Return the inner payment-required payload if the result is one, else None.
 
     Pydantic AI surfaces tool results in a few shapes (dict, string, structured
     content list). We look for the common shapes used by paywall-mcp and
-    paywall-mcp-test.
+    l402-search-mcp (see `_is_payment_required`).
     """
-    if isinstance(result, dict) and result.get("error") == "payment_required":
+    if isinstance(result, dict) and _is_payment_required(result):
         return result
     if isinstance(result, str):
-        # paywall-mcp returns its body as a JSON string sometimes; try to parse.
+        # Some servers return the body as a JSON string; try to parse.
         try:
             import json
 
             parsed = json.loads(result)
-            if isinstance(parsed, dict) and parsed.get("error") == "payment_required":
+            if isinstance(parsed, dict) and _is_payment_required(parsed):
                 return parsed
         except (ValueError, TypeError):
             return None

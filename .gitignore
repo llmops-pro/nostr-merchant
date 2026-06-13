@@ -25,3 +25,4 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+nwc-mcp-state.json

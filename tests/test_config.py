@@ -113,10 +113,10 @@ class TestToolAllowlist:
 
 
 class TestMcpServerSpecs:
-    def test_default_set_is_the_five_substrate_servers(self) -> None:
+    def test_default_set_is_the_substrate_servers(self) -> None:
         cfg = make()
         names = [spec.name for spec in cfg.mcp_server_specs()]
-        assert names == ["nwc", "nostr", "marketplace", "albyhub", "paywall"]
+        assert names == ["nwc", "nostr", "marketplace", "albyhub", "paywall", "search"]
         for spec in cfg.mcp_server_specs():
             assert spec.command == "npx"
             assert spec.args[0] == "-y"
@@ -146,7 +146,7 @@ class TestSubstrateRoot:
     def test_local_builds_emit_node_command(self, tmp_path: object) -> None:
         cfg = make(NOSTR_MERCHANT_SUBSTRATE_ROOT=str(tmp_path))
         specs = cfg.mcp_server_specs()
-        assert len(specs) == 5
+        assert len(specs) == 6
         for spec in specs:
             assert spec.command == "node"
             assert spec.args[0].endswith("/dist/index.js")
@@ -161,14 +161,14 @@ class TestSubstrateSkip:
     def test_no_skip_when_unset(self) -> None:
         cfg = make()
         assert cfg.substrate_skip() == set()
-        assert len(cfg.mcp_server_specs()) == 5
+        assert len(cfg.mcp_server_specs()) == 6
 
     def test_single_skip_filters_npx_defaults(self) -> None:
         cfg = make(NOSTR_MERCHANT_SUBSTRATE_SKIP="albyhub")
         assert cfg.substrate_skip() == {"albyhub"}
         names = [s.name for s in cfg.mcp_server_specs()]
         assert "albyhub" not in names
-        assert len(names) == 4
+        assert len(names) == 5
 
     def test_multiple_skips_csv(self) -> None:
         cfg = make(NOSTR_MERCHANT_SUBSTRATE_SKIP="albyhub, paywall")
@@ -176,7 +176,7 @@ class TestSubstrateSkip:
         names = [s.name for s in cfg.mcp_server_specs()]
         assert "albyhub" not in names
         assert "paywall" not in names
-        assert len(names) == 3
+        assert len(names) == 4
 
     def test_skip_filters_substrate_root_specs(self, tmp_path: object) -> None:
         cfg = make(
@@ -185,8 +185,8 @@ class TestSubstrateSkip:
         )
         names = [s.name for s in cfg.mcp_server_specs()]
         assert "nostr" not in names
-        assert len(names) == 4
-        # The remaining 4 should still be `node`-spawned (substrate-root mode).
+        assert len(names) == 5
+        # The remaining ones should still be `node`-spawned (substrate-root mode).
         for spec in cfg.mcp_server_specs():
             assert spec.command == "node"
 

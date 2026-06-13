@@ -112,9 +112,10 @@ class AgentConfig(BaseSettings):
     NOSTR_MERCHANT_SUBSTRATE_ROOT: Path | None = Field(
         default=None,
         description=(
-            "Path to the parent directory containing the five MCP-server "
+            "Path to the parent directory containing the MCP-server "
             "build directories as siblings (`nwc-mcp/`, `nostr-ops-mcp/`, "
-            "`marketplace-mcp/`, `albyhub-admin-mcp/`, `paywall-mcp/`). "
+            "`marketplace-mcp/`, `albyhub-admin-mcp/`, `paywall-mcp/`, "
+            "`l402-search-mcp/`). "
             "When set AND `NOSTR_MERCHANT_MCP_SERVERS` is unset, the agent spawns "
             "the substrate from your LOCAL builds via "
             "`node <root>/<name>/dist/index.js`, so each server reads its "
@@ -132,8 +133,8 @@ class AgentConfig(BaseSettings):
             "default list (whether sourced from NOSTR_MERCHANT_SUBSTRATE_ROOT or "
             "the npx fallback). Useful when one server's config is broken "
             "or its upstream dependency is unavailable. Recognized names: "
-            "nwc, nostr, marketplace, albyhub, paywall. Example: "
-            "'NOSTR_MERCHANT_SUBSTRATE_SKIP=albyhub' to launch only the other four."
+            "nwc, nostr, marketplace, albyhub, paywall, search. Example: "
+            "'NOSTR_MERCHANT_SUBSTRATE_SKIP=albyhub' to launch only the others."
         ),
     )
 
@@ -302,6 +303,7 @@ class AgentConfig(BaseSettings):
             McpServerSpec(name="marketplace", command="npx", args=["-y", "marketplace-mcp"]),
             McpServerSpec(name="albyhub", command="npx", args=["-y", "albyhub-admin-mcp"]),
             McpServerSpec(name="paywall", command="npx", args=["-y", "paywall-mcp"]),
+            McpServerSpec(name="search", command="npx", args=["-y", "l402-search-mcp"]),
         ]
         return [spec for spec in npx_defaults if spec.name not in skip]
 
@@ -316,6 +318,7 @@ _SUBSTRATE_DIR_BY_NAME: dict[str, str] = {
     "marketplace": "marketplace-mcp",
     "albyhub": "albyhub-admin-mcp",
     "paywall": "paywall-mcp",
+    "search": "l402-search-mcp",
 }
 
 
