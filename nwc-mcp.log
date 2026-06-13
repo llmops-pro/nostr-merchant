@@ -1,3 +1,15 @@
 {"ts":"2026-06-09T08:29:39.968Z","tool":"_startup","outcome":"ok","result":{"read_only":false,"daily_budget_sats":10000,"total_budget_sats":null,"max_invoice_sats":null,"require_confirm":false,"keysend_enabled":false,"allowlist_size":0}}
 {"ts":"2026-06-09T08:33:51.090Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
 {"ts":"2026-06-11T06:10:42.621Z","tool":"_startup","outcome":"ok","result":{"read_only":false,"daily_budget_sats":10000,"total_budget_sats":null,"max_invoice_sats":null,"require_confirm":false,"keysend_enabled":false,"allowlist_size":0}}
+{"ts":"2026-06-12T07:49:35.183Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
+{"ts":"2026-06-12T07:49:35.225Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGTERM"}}
+{"ts":"2026-06-12T07:49:47.239Z","tool":"_startup","outcome":"ok","result":{"read_only":false,"daily_budget_sats":10000,"total_budget_sats":null,"max_invoice_sats":null,"require_confirm":false,"keysend_enabled":false,"allowlist_size":0}}
+{"ts":"2026-06-12T19:55:52.246Z","tool":"nwc_get_balance","outcome":"ok","result":{"balance_sats":458,"balance_msat":458867}}
+{"ts":"2026-06-12T19:56:14.713Z","tool":"nwc_pay_invoice","outcome":"ok","input":{"invoice_prefix":"lnbc500n1p4zcep8dpcwdjkz...","amount_override_sats":null},"result":{"paid_sats":50,"fees_paid_sats":0,"destination":"022ee6620f79c37526e3567da512b2c2bb64780fac103f45dc45104e85307827e4"}}
+{"ts":"2026-06-12T20:09:42.506Z","tool":"nwc_pay_invoice","outcome":"ok","input":{"invoice_prefix":"lnbc500n1p4zcemddp5wdjkz...","amount_override_sats":null},"result":{"paid_sats":50,"fees_paid_sats":0,"destination":"022ee6620f79c37526e3567da512b2c2bb64780fac103f45dc45104e85307827e4"}}
+{"ts":"2026-06-12T20:18:21.404Z","tool":"nwc_pay_invoice","outcome":"ok","input":{"invoice_prefix":"lnbc500n1p4zc6tcdz5wdjkz...","amount_override_sats":null},"result":{"paid_sats":50,"fees_paid_sats":0,"destination":"022ee6620f79c37526e3567da512b2c2bb64780fac103f45dc45104e85307827e4"}}
+{"ts":"2026-06-12T20:21:53.980Z","tool":"nwc_pay_invoice","outcome":"ok","input":{"invoice_prefix":"lnbc500n1p4zc6jfdpawdjkz...","amount_override_sats":null},"result":{"paid_sats":50,"fees_paid_sats":0,"destination":"022ee6620f79c37526e3567da512b2c2bb64780fac103f45dc45104e85307827e4"}}
+{"ts":"2026-06-12T22:21:23.757Z","tool":"nwc_pay_invoice","outcome":"ok","input":{"invoice_prefix":"lnbc500n1p4zepjtdz0wdjkz...","amount_override_sats":null},"result":{"paid_sats":50,"fees_paid_sats":0,"destination":"022ee6620f79c37526e3567da512b2c2bb64780fac103f45dc45104e85307827e4"}}
+{"ts":"2026-06-13T06:51:16.811Z","tool":"nwc_get_balance","outcome":"ok","result":{"balance_sats":208,"balance_msat":208867}}
+{"ts":"2026-06-13T16:49:20.816Z","tool":"nwc_pay_invoice","outcome":"ok","input":{"invoice_prefix":"lnbc500n1p4zmzwcdzzdehhx...","amount_override_sats":null},"result":{"paid_sats":50,"fees_paid_sats":0,"destination":"022ee6620f79c37526e3567da512b2c2bb64780fac103f45dc45104e85307827e4"}}
+{"ts":"2026-06-13T19:44:51.556Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}

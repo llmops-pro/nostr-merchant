@@ -1,3 +1,8 @@
 {"ts":"2026-06-09T08:29:42.215Z","tool":"_startup","outcome":"ok","result":{"upstream_name":"tavily-mcp","upstream_version":"0.2.20","default_price_sats":50,"price_map_entries":5,"read_only":false,"nwc_configured":true,"invoice_ttl_seconds":600}}
 {"ts":"2026-06-09T08:33:51.091Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
 {"ts":"2026-06-11T06:10:45.723Z","tool":"_startup","outcome":"ok","result":{"upstream_name":"tavily-mcp","upstream_version":"0.2.20","default_price_sats":50,"price_map_entries":5,"read_only":false,"nwc_configured":true,"invoice_ttl_seconds":600}}
+{"ts":"2026-06-12T07:49:35.201Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
+{"ts":"2026-06-12T07:49:35.249Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGTERM"}}
+{"ts":"2026-06-12T07:49:50.432Z","tool":"_startup","outcome":"ok","result":{"upstream_name":"tavily-mcp","upstream_version":"0.2.20","default_price_sats":50,"price_map_entries":5,"read_only":false,"nwc_configured":true,"invoice_ttl_seconds":600}}
+{"ts":"2026-06-13T19:44:51.567Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
+{"ts":"2026-06-13T19:44:51.605Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGTERM"}}
