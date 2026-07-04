@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -18,8 +19,13 @@ from nostr_merchant.workflows.engagement import (
     append_outreach_ledger,
     append_replied_ledger,
     build_inbox_ledger_entry,
+    items_from_scout_queue,
     load_replied_ledger,
+    load_scout_offset,
+    read_scout_queue,
     render_queue,
+    save_scout_offset,
+    scout_offset_path,
 )
 
 
@@ -133,14 +139,20 @@ class TestRepliedLedger:
         assert load_replied_ledger(p) == {"aaa", "bbb"}
 
 
+def _plain_help(args: list[str]) -> str:
+    """CLI help with ANSI escapes and wrapping-whitespace stripped (env-independent)."""
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    return re.sub(r"\s+", "", text)
+
+
 class TestInboxCommandRegistered:
     def test_inbox_help_lists_options_including_post(self) -> None:
-        runner = CliRunner()
-        result = runner.invoke(app, ["inbox", "--help"])
-        assert result.exit_code == 0
-        assert "--since" in result.stdout
-        assert "--limit" in result.stdout
-        assert "--post" in result.stdout
+        help_text = _plain_help(["inbox", "--help"])
+        assert "--since" in help_text
+        assert "--limit" in help_text
+        assert "--post" in help_text
 
 
 class TestDraftedReplyClassification:
@@ -214,3 +226,82 @@ class TestAppendOutreachLedger:
         p.write_text(json.dumps({"no_entries": True}), encoding="utf-8")
         status = append_outreach_ledger(p, {"id": "new"})
         assert "shape unexpected" in status
+
+
+class TestScoutQueue:
+    """`inbox --from-queue` consumes scout-watcher's NDJSON queue via an offset file."""
+
+    @staticmethod
+    def _entry(eid: str, kind: int = 1, created: int = 100, author: str = "a" * 64) -> str:
+        return json.dumps(
+            {
+                "seen_at": "2026-07-04T12:00:00Z",
+                "type": "mention",
+                "id": eid,
+                "kind": kind,
+                "created_at": created,
+                "author": author,
+                "content": f"content of {eid}",
+            },
+        )
+
+    def test_offset_missing_file_is_zero(self, tmp_path: Path) -> None:
+        assert load_scout_offset(tmp_path / "scout-queue.ndjson") == 0
+
+    def test_offset_roundtrip(self, tmp_path: Path) -> None:
+        q = tmp_path / "scout-queue.ndjson"
+        save_scout_offset(q, 7)
+        assert load_scout_offset(q) == 7
+        assert scout_offset_path(q).name == "scout-queue.ndjson.offset"
+
+    def test_offset_corrupt_is_zero(self, tmp_path: Path) -> None:
+        q = tmp_path / "scout-queue.ndjson"
+        scout_offset_path(q).write_text("not a number\n", encoding="utf-8")
+        assert load_scout_offset(q) == 0
+
+    def test_read_missing_queue_is_empty(self, tmp_path: Path) -> None:
+        assert read_scout_queue(tmp_path / "scout-queue.ndjson", offset=0) == []
+
+    def test_read_respects_offset_and_tolerates_corrupt_lines(self, tmp_path: Path) -> None:
+        q = tmp_path / "scout-queue.ndjson"
+        q.write_text(
+            self._entry("e1") + "\n" + "corrupt {{{\n" + self._entry("e2") + "\n",
+            encoding="utf-8",
+        )
+        all_entries = read_scout_queue(q, offset=0)
+        assert [(n, r["id"]) for n, r in all_entries] == [(0, "e1"), (2, "e2")]
+        assert [r["id"] for _, r in read_scout_queue(q, offset=1)] == ["e2"]
+
+    def test_items_filter_kinds_dupes_and_replied(self, tmp_path: Path) -> None:
+        numbered = [
+            (0, json.loads(self._entry("e1", created=10))),
+            (1, json.loads(self._entry("e1", created=10))),  # dupe
+            (2, json.loads(self._entry("e2", kind=6))),  # repost: signal, not inbox item
+            (3, json.loads(self._entry("e3", created=30))),
+            (4, json.loads(self._entry("e4", created=40))),
+        ]
+        items, consumed = items_from_scout_queue(
+            numbered, answered={"e3"}, limit=20, offset=0,
+        )
+        assert [i.event_id for i in items] == ["e1", "e4"]
+        assert consumed == 5  # everything examined
+        assert items[0].relation == "mention"
+        assert items[0].author_pubkey == "a" * 64
+
+    def test_limit_stops_consumption_at_last_examined_line(self, tmp_path: Path) -> None:
+        numbered = [
+            (5, json.loads(self._entry("e1"))),
+            (6, json.loads(self._entry("e2"))),
+            (7, json.loads(self._entry("e3"))),
+        ]
+        items, consumed = items_from_scout_queue(numbered, answered=set(), limit=2, offset=5)
+        assert [i.event_id for i in items] == ["e1", "e2"]
+        assert consumed == 7  # e3's line (7) must NOT be consumed — it resurfaces next run
+
+    def test_empty_queue_consumes_nothing_beyond_offset(self, tmp_path: Path) -> None:
+        items, consumed = items_from_scout_queue([], answered=set(), limit=20, offset=42)
+        assert items == []
+        assert consumed == 42
+
+    def test_inbox_help_lists_from_queue(self) -> None:
+        assert "--from-queue" in _plain_help(["inbox", "--help"])

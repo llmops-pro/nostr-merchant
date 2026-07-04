@@ -31,6 +31,7 @@ from .workflows.engagement import (
     append_outreach_ledger,
     build_inbox_ledger_entry,
     run_inbox,
+    save_scout_offset,
 )
 from .workflows.research import run_research
 
@@ -170,6 +171,16 @@ def inbox(
             "model than the agent loop's is often worth it here.",
         ),
     ] = None,
+    from_queue: Annotated[
+        bool,
+        typer.Option(
+            "--from-queue",
+            help="Gather from scout-watcher's queue (~/.nostr-merchant/scout-queue.ndjson) "
+            "instead of querying relays. Faster, complete since the last consumed offset, and "
+            "immune to stale relay pools; --since is ignored. A completed --post session "
+            "advances the offset; read-only runs never consume.",
+        ),
+    ] = False,
 ) -> None:
     """Triage replies/mentions on your recent NOSTR posts and draft responses.
 
@@ -189,14 +200,28 @@ def inbox(
         if post
         else "READ-ONLY (drafts only — nothing is published)"
     )
+    source = (
+        f"scout queue ({config.NOSTR_MERCHANT_SCOUT_QUEUE_PATH})"
+        if from_queue
+        else f"relays, last {since}h"
+    )
     console.print(
         Panel(
-            f"[bold]Gathering engagement — last {since}h, up to {limit} items[/bold]\n\n"
+            f"[bold]Gathering engagement — {source}, up to {limit} items[/bold]\n\n"
             f"[dim]model: {model or config.NOSTR_MERCHANT_MODEL}  ·  {mode}[/dim]",
             title="nostr-merchant inbox",
             border_style="cyan",
         ),
     )
+
+    def consume_queue() -> None:
+        """Advance the scout-queue offset past everything examined this session."""
+        if from_queue and result.queue_consumed_lines is not None:
+            save_scout_offset(config.NOSTR_MERCHANT_SCOUT_QUEUE_PATH, result.queue_consumed_lines)
+            console.print(
+                f"[dim]scout-queue offset advanced to {result.queue_consumed_lines}[/dim]",
+            )
+
     try:
         result = asyncio.run(
             run_inbox(
@@ -204,6 +229,7 @@ def inbox(
                 since_hours=since,
                 limit=limit,
                 model_override=model,
+                from_queue=from_queue,
                 on_progress=lambda msg: console.print(f"[dim]{msg}[/dim]"),
             ),
         )
@@ -230,7 +256,9 @@ def inbox(
             ),
         )
         console.print(
-            "[dim]read-only — nothing published. Re-run with --post to approve + publish replies.[/dim]",
+            "[dim]read-only — nothing published. Re-run with --post to approve + publish replies."
+            + (" Queue offset unchanged." if from_queue else "")
+            + "[/dim]",
         )
         return
 
@@ -241,9 +269,11 @@ def inbox(
         console.print(
             f"[yellow]No drafts to post ({skipped} auto-skipped, or nothing in the window).[/yellow]",
         )
+        consume_queue()  # everything examined was dispositioned (auto-skipped or empty)
         return
 
     console.print(f"\n[bold]{len(drafts)} draft(s) to review[/bold] · {skipped} auto-skipped\n")
+    quit_early = False
     approved: list[tuple[str, str, str]] = []
     # reply_to (inbound event id) -> {to, business_relevant, reply_text, in_reply_to_excerpt}
     # for the optional ledger auto-log.
@@ -262,6 +292,7 @@ def inbox(
         choice = typer.prompt("  [p]ost / [e]dit / [s]kip / [q]uit", default="s").strip().lower()
         if choice == "q":
             console.print("[yellow]Stopping review.[/yellow]")
+            quit_early = True
             break
         base = {
             "to": it.author_pubkey,
@@ -279,12 +310,14 @@ def inbox(
 
     if not approved:
         console.print("[yellow]Nothing approved — nothing posted.[/yellow]")
+        if not quit_early:
+            consume_queue()  # every item was reviewed and deliberately skipped
         return
 
     plural = "y" if len(approved) == 1 else "ies"
     console.print(f"\n[bold]{len(approved)} repl{plural} approved.[/bold]")
     if not typer.confirm(f"Publish {len(approved)} repl{plural} to NOSTR now?", default=False):
-        console.print("[yellow]Aborted — nothing posted.[/yellow]")
+        console.print("[yellow]Aborted — nothing posted. Queue offset unchanged (re-run to redo).[/yellow]")
         return
 
     console.print("[dim]publishing…[/dim]")
@@ -345,6 +378,11 @@ def inbox(
             )
             status = append_outreach_ledger(config.NOSTR_MERCHANT_LEDGER_PATH, entry)
             console.print(f"[dim]{status}[/dim]")
+
+    # A fully-reviewed --post session consumes the examined queue lines; quitting mid-review
+    # leaves the offset so unreviewed items resurface next run.
+    if not quit_early:
+        consume_queue()
 
 
 @app.command()

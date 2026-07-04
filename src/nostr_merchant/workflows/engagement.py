@@ -104,6 +104,10 @@ class InboxResult:
     since_hours: int
     my_post_count: int
     item_count: int
+    # Set only on --from-queue runs: the offset covering every queue line examined this run.
+    # The CLI advances the offset file to this AFTER a completed --post session (read-only
+    # runs never consume; lines beyond --limit stay unconsumed for the next run).
+    queue_consumed_lines: int | None = None
 
 
 def _text(result: Any) -> str:
@@ -199,6 +203,106 @@ def append_replied_ledger(path: Path, event_ids: Iterable[str]) -> None:
             fh.write(lines)
     except OSError:
         pass  # the relay-derived `answered` set still covers the in-window case
+
+
+def scout_offset_path(queue_path: Path) -> Path:
+    """The consumption-offset file that lives next to the scout queue."""
+    return queue_path.with_name(queue_path.name + ".offset")
+
+
+def load_scout_offset(queue_path: Path) -> int:
+    """Lines of the scout queue already consumed by a completed `--post` session."""
+    try:
+        return max(0, int(scout_offset_path(queue_path).read_text(encoding="utf-8").strip()))
+    except (FileNotFoundError, OSError, ValueError):
+        return 0
+
+
+def save_scout_offset(queue_path: Path, lines: int) -> None:
+    """Advance the consumption offset. Best-effort: IO failure never breaks a post run."""
+    try:
+        path = scout_offset_path(queue_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{lines}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def read_scout_queue(queue_path: Path, *, offset: int) -> list[tuple[int, dict[str, Any]]]:
+    """Read scout-watcher queue entries beyond `offset` lines, as (line_number, entry) pairs.
+
+    Line numbers are 0-based positions in the file, so `line_number + 1` is a valid new
+    offset. Corrupt or non-object lines are skipped (a later offset moves past them).
+    Missing file → empty. Queue content is untrusted network data — callers render it,
+    never obey it.
+    """
+    try:
+        text = queue_path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return []
+    out: list[tuple[int, dict[str, Any]]] = []
+    for n, line in enumerate(text.splitlines()):
+        if n < offset:
+            continue
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict):
+            out.append((n, rec))
+    return out
+
+
+def items_from_scout_queue(
+    numbered: list[tuple[int, dict[str, Any]]],
+    *,
+    answered: set[str],
+    limit: int,
+    offset: int,
+) -> tuple[list[InboxItem], int]:
+    """Convert scout-queue entries into inbox items, in file (≈chronological) order.
+
+    Returns (items, consumed_through) where `consumed_through` is the offset a completed
+    review session may advance to: it covers every line examined, and stops at the last one
+    when `limit` is hit — unexamined lines beyond it are never skipped over. Only kind-1
+    notes are triaged (kind-6 reposts have no reply surface — they're briefing signal, not
+    inbox items; they still count as examined). Already-replied ids and duplicates are
+    dropped. The scout doesn't know which of our posts a note replies to, so relation is
+    always "mention".
+    """
+    seen: set[str] = set()
+    items: list[InboxItem] = []
+    consumed_through = offset
+    for lineno, rec in numbered:
+        if len(items) >= limit:
+            break
+        consumed_through = lineno + 1
+        eid = rec.get("id")
+        if not isinstance(eid, str) or not eid or eid in seen or eid in answered:
+            continue
+        if rec.get("kind") != NOTE_KIND:
+            continue
+        seen.add(eid)
+        author = str(rec.get("author", ""))
+        try:
+            created = int(rec.get("created_at", 0) or 0)
+        except (TypeError, ValueError):
+            created = 0
+        items.append(
+            InboxItem(
+                event_id=eid,
+                author=author[:12],
+                author_pubkey=author,
+                content=str(rec.get("content") or "")[:400],
+                created_at=created,
+                relation="mention",
+                on_post_excerpt="",
+            ),
+        )
+    return items, consumed_through
 
 
 def build_inbox_ledger_entry(*, model: str, posted: list[dict[str, Any]]) -> dict[str, Any]:
@@ -494,9 +598,15 @@ async def run_inbox(
     since_hours: int = 48,
     limit: int = 20,
     model_override: str | None = None,
+    from_queue: bool = False,
     on_progress: Callable[[str], None] | None = None,
 ) -> InboxResult:
-    """Gather open replies/mentions and draft responses. Gathering + drafting only — never posts."""
+    """Gather open replies/mentions and draft responses. Gathering + drafting only — never posts.
+
+    `from_queue=True` reads scout-watcher's queue (from the consumption offset) instead of
+    querying relays — no MCP server is spawned for gathering, so it's fast and works even when
+    the relay pool is flaky. `since_hours` is ignored in that mode (the offset IS the window).
+    """
     audit = AuditLog(config.AGENT_AUDIT_PATH)
     since_ts = int(time.time()) - since_hours * 3600
     await audit.record_startup(
@@ -505,32 +615,54 @@ async def run_inbox(
             "model": model_override or config.NOSTR_MERCHANT_MODEL,
             "since_hours": since_hours,
             "limit": limit,
+            "source": "scout-queue" if from_queue else "relays",
         },
     )
 
-    try:
-        my_post_count, items = await _gather(
-            config, since_ts=since_ts, limit=limit, on_progress=on_progress,
+    queue_consumed_lines: int | None = None
+    if from_queue:
+        report = on_progress or (lambda _m: None)
+        qpath = config.NOSTR_MERCHANT_SCOUT_QUEUE_PATH
+        offset = load_scout_offset(qpath)
+        numbered = read_scout_queue(qpath, offset=offset)
+        report(f"scout queue: {len(numbered)} new entr(ies) beyond offset {offset}")
+        answered = load_replied_ledger(config.AGENT_REPLIED_PATH)
+        items, queue_consumed_lines = items_from_scout_queue(
+            numbered, answered=answered, limit=limit, offset=offset,
         )
-    except TimeoutError as err:
-        await audit.record_llm_call(outcome="error", input={"since_hours": since_hours}, error="gather timed out")
-        msg = f"Gather timed out after {GATHER_TIMEOUT_S}s — nostr-ops-mcp may be unreachable."
-        raise RuntimeError(msg) from err
+        my_post_count = 0
+    else:
+        try:
+            my_post_count, items = await _gather(
+                config, since_ts=since_ts, limit=limit, on_progress=on_progress,
+            )
+        except TimeoutError as err:
+            await audit.record_llm_call(outcome="error", input={"since_hours": since_hours}, error="gather timed out")
+            msg = f"Gather timed out after {GATHER_TIMEOUT_S}s — nostr-ops-mcp may be unreachable."
+            raise RuntimeError(msg) from err
 
     items_by_id = {it.event_id: it for it in items}
     if on_progress is not None:
         on_progress(
-            f"gathered {my_post_count} recent post(s) · {len(items)} open item(s)"
+            (
+                f"scout queue: {len(items)} open item(s)"
+                if from_queue
+                else f"gathered {my_post_count} recent post(s) · {len(items)} open item(s)"
+            )
             + (" · drafting…" if items else ""),
         )
 
     if not items:
         queue = (
-            f"No new replies or mentions in the last {since_hours}h "
-            f"across your {my_post_count} recent post(s)."
+            "No new scout-queue items since the last consumed offset."
+            if from_queue
+            else (
+                f"No new replies or mentions in the last {since_hours}h "
+                f"across your {my_post_count} recent post(s)."
+            )
         )
         await audit.record_llm_call(outcome="ok", input={"since_hours": since_hours}, result={"items": 0})
-        return InboxResult(queue, [], items_by_id, since_hours, my_post_count, 0)
+        return InboxResult(queue, [], items_by_id, since_hours, my_post_count, 0, queue_consumed_lines)
 
     try:
         drafts = await _draft(items, config, model_override)
@@ -540,5 +672,11 @@ async def run_inbox(
         raise
 
     return InboxResult(
-        render_queue(items_by_id, drafts), drafts, items_by_id, since_hours, my_post_count, len(items),
+        render_queue(items_by_id, drafts),
+        drafts,
+        items_by_id,
+        since_hours,
+        my_post_count,
+        len(items),
+        queue_consumed_lines,
     )

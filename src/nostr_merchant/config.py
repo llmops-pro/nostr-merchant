@@ -64,6 +64,10 @@ def _default_replied_path() -> Path:
     return Path.home() / ".nostr-merchant" / "replied.json"
 
 
+def _default_scout_queue_path() -> Path:
+    return Path.home() / ".nostr-merchant" / "scout-queue.ndjson"
+
+
 class AgentConfig(BaseSettings):
     """All env-driven config for nostr-merchant.
 
@@ -186,6 +190,10 @@ class AgentConfig(BaseSettings):
     # (nostr-business-ledger/v1 JSON). Unset (default) = no ledger writes. The tool logs FACTS
     # only — Claude Code / the operator review + annotate the business-relevant ones.
     NOSTR_MERCHANT_LEDGER_PATH: Path | None = Field(default=None)
+    # Where scout-watcher (the tier-1 24/7 mention watcher — see 14-scout-agent-design.md at the
+    # NOSTR root) appends its NDJSON queue. `inbox --from-queue` consumes it instead of
+    # re-querying relays. The consumption offset lives next to it at `<path>.offset`.
+    NOSTR_MERCHANT_SCOUT_QUEUE_PATH: Path = Field(default_factory=_default_scout_queue_path)
 
     # ---- Validators ----
 
