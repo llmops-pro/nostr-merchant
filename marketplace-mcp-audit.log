@@ -4,3 +4,5 @@
 {"ts":"2026-06-12T07:49:35.123Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
 {"ts":"2026-06-12T07:49:47.369Z","tool":"_startup","outcome":"ok","result":{"signer_configured":true,"signer_kind":"nsec","relay_count":6,"read_only":false,"require_confirm":false,"shopstr_cache_enabled":true,"shopstr_cache_url":"https://shopstr.store/api/db/cache-event","rate_limits":{"events":{"used":0,"limit":10}}}}
 {"ts":"2026-06-13T19:44:51.550Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
+{"ts":"2026-06-13T20:43:46.363Z","tool":"_startup","outcome":"ok","result":{"signer_configured":true,"signer_kind":"nsec","relay_count":6,"read_only":false,"require_confirm":false,"shopstr_cache_enabled":true,"shopstr_cache_url":"https://shopstr.store/api/db/cache-event","rate_limits":{"events":{"used":0,"limit":10}}}}
+{"ts":"2026-06-13T20:47:57.798Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}

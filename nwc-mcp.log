@@ -13,3 +13,5 @@
 {"ts":"2026-06-13T06:51:16.811Z","tool":"nwc_get_balance","outcome":"ok","result":{"balance_sats":208,"balance_msat":208867}}
 {"ts":"2026-06-13T16:49:20.816Z","tool":"nwc_pay_invoice","outcome":"ok","input":{"invoice_prefix":"lnbc500n1p4zmzwcdzzdehhx...","amount_override_sats":null},"result":{"paid_sats":50,"fees_paid_sats":0,"destination":"022ee6620f79c37526e3567da512b2c2bb64780fac103f45dc45104e85307827e4"}}
 {"ts":"2026-06-13T19:44:51.556Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
+{"ts":"2026-06-13T20:43:46.247Z","tool":"_startup","outcome":"ok","result":{"read_only":false,"daily_budget_sats":10000,"total_budget_sats":null,"max_invoice_sats":null,"require_confirm":false,"keysend_enabled":false,"allowlist_size":0}}
+{"ts":"2026-06-13T20:47:57.798Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}

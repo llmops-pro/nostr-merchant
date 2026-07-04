@@ -4,3 +4,5 @@
 {"ts":"2026-06-12T07:49:35.126Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
 {"ts":"2026-06-12T07:49:47.370Z","tool":"_startup","outcome":"ok","result":{"signer_configured":true,"signer_kind":"nsec","relay_count":6,"read_only":false,"dm_tools_enabled":false,"allowed_kinds":[0,1,5,9,30023],"dm_allowlist_size":0,"require_confirm":false,"rate_limits":{"events":{"used":0,"limit":10},"dms":{"used":0,"limit":5}}}}
 {"ts":"2026-06-13T19:44:51.547Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
+{"ts":"2026-06-13T20:43:46.363Z","tool":"_startup","outcome":"ok","result":{"signer_configured":true,"signer_kind":"nsec","relay_count":6,"read_only":false,"dm_tools_enabled":false,"allowed_kinds":[0,1,5,9,30023],"dm_allowlist_size":0,"require_confirm":false,"rate_limits":{"events":{"used":0,"limit":10},"dms":{"used":0,"limit":5}}}}
+{"ts":"2026-06-13T20:47:57.798Z","tool":"_shutdown","outcome":"ok","result":{"signal":"SIGINT"}}
