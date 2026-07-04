@@ -58,6 +58,12 @@ generic "thanks!".
   NWC/L402, the kit, the playbook, a sale, a grant, a genuine prospect or technical question
   about what we build); false for social/community banter or off-topic chat.
 
+# Scouted leads (items marked "scouted lead — cold join")
+These are conversations we are NOT part of — nobody tagged us. The bar is HIGHER: draft only
+when we add real value from direct experience (answer their technical question, share a concrete
+receipt or finding). Never pitch products in a cold join; being useful IS the marketing.
+Skipping is the default for anything we'd merely be commenting on.
+
 Copy each item's event_id EXACTLY into your result.
 """
 
@@ -270,8 +276,9 @@ def items_from_scout_queue(
     when `limit` is hit — unexamined lines beyond it are never skipped over. Only kind-1
     notes are triaged (kind-6 reposts have no reply surface — they're briefing signal, not
     inbox items; they still count as examined). Already-replied ids and duplicates are
-    dropped. The scout doesn't know which of our posts a note replies to, so relation is
-    always "mention".
+    dropped. Entries the topic scout queued as `type: "lead"` become relation="lead"
+    (cold joins — the draft prompt holds them to a higher bar); everything else is a
+    "mention" (the scout doesn't know which of our posts a note replies to).
     """
     seen: set[str] = set()
     items: list[InboxItem] = []
@@ -291,6 +298,12 @@ def items_from_scout_queue(
             created = int(rec.get("created_at", 0) or 0)
         except (TypeError, ValueError):
             created = 0
+        is_lead = rec.get("type") == "lead"
+        excerpt = ""
+        if is_lead:
+            topics = rec.get("topics")
+            names = [str(t) for t in topics if t] if isinstance(topics, list) else []
+            excerpt = f"topics: {', '.join(names)}" if names else ""
         items.append(
             InboxItem(
                 event_id=eid,
@@ -298,8 +311,8 @@ def items_from_scout_queue(
                 author_pubkey=author,
                 content=str(rec.get("content") or "")[:400],
                 created_at=created,
-                relation="mention",
-                on_post_excerpt="",
+                relation="lead" if is_lead else "mention",
+                on_post_excerpt=excerpt,
             ),
         )
     return items, consumed_through
@@ -507,11 +520,12 @@ async def _draft(
     )
     blocks = []
     for it in items:
-        ctx = (
-            f"reply on my post: “{it.on_post_excerpt}…”"
-            if it.relation == "reply"
-            else "mention of me"
-        )
+        if it.relation == "reply":
+            ctx = f"reply on my post: “{it.on_post_excerpt}…”"
+        elif it.relation == "lead":
+            ctx = f"scouted lead — cold join ({it.on_post_excerpt})"
+        else:
+            ctx = "mention of me"
         blocks.append(
             f"event_id: {it.event_id}\n  {ctx}\n  they said: {it.content}",
         )
@@ -530,7 +544,12 @@ def render_queue(items_by_id: dict[str, InboxItem], drafts: list[DraftedReply]) 
         it = items_by_id.get(d.event_id)
         if it is None:
             continue
-        ctx = f"reply on “{it.on_post_excerpt}…”" if it.relation == "reply" else "mention"
+        if it.relation == "reply":
+            ctx = f"reply on “{it.on_post_excerpt}…”"
+        elif it.relation == "lead":
+            ctx = f"lead ({it.on_post_excerpt})" if it.on_post_excerpt else "lead"
+        else:
+            ctx = "mention"
         head = f"{n}. from {it.author}… · {ctx} · event {d.event_id[:12]}…"
         if d.action == "skip":
             skipped += 1

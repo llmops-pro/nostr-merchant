@@ -305,3 +305,16 @@ class TestScoutQueue:
 
     def test_inbox_help_lists_from_queue(self) -> None:
         assert "--from-queue" in _plain_help(["inbox", "--help"])
+
+    def test_lead_entries_become_lead_relation_with_topics(self, tmp_path: Path) -> None:
+        lead = json.loads(self._entry("e9", created=50))
+        lead["type"] = "lead"
+        lead["topics"] = ["L402", "x402"]
+        lead["score"] = 3
+        numbered = [(0, json.loads(self._entry("e8"))), (1, lead)]
+        items, consumed = items_from_scout_queue(numbered, answered=set(), limit=20, offset=0)
+        assert consumed == 2
+        by_id = {i.event_id: i for i in items}
+        assert by_id["e8"].relation == "mention"
+        assert by_id["e9"].relation == "lead"
+        assert by_id["e9"].on_post_excerpt == "topics: L402, x402"
