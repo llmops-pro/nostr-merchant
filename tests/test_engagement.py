@@ -19,6 +19,7 @@ from nostr_merchant.workflows.engagement import (
     append_outreach_ledger,
     append_replied_ledger,
     build_inbox_ledger_entry,
+    drafting_model_override,
     items_from_scout_queue,
     load_replied_ledger,
     load_scout_offset,
@@ -318,3 +319,33 @@ class TestScoutQueue:
         assert by_id["e8"].relation == "mention"
         assert by_id["e9"].relation == "lead"
         assert by_id["e9"].on_post_excerpt == "topics: L402, x402"
+
+
+class TestLeadModelEscalation:
+    """Cold-join drafts get the stronger model unless the operator overrode explicitly."""
+
+    @staticmethod
+    def _item(relation: str) -> InboxItem:
+        return InboxItem(
+            event_id="e1", author="a", author_pubkey="a" * 64, content="c",
+            created_at=1, relation=relation, on_post_excerpt="",
+        )
+
+    def test_explicit_override_always_wins(self) -> None:
+        got = drafting_model_override(
+            [self._item("lead")], "anthropic:claude-haiku-4-5-20251001", "anthropic:claude-sonnet-4-6",
+        )
+        assert got == "anthropic:claude-haiku-4-5-20251001"
+
+    def test_leads_escalate_to_lead_model(self) -> None:
+        items = [self._item("mention"), self._item("lead")]
+        assert drafting_model_override(items, None, "anthropic:claude-sonnet-4-6") == "anthropic:claude-sonnet-4-6"
+
+    def test_no_leads_keeps_default(self) -> None:
+        assert drafting_model_override([self._item("mention")], None, "anthropic:claude-sonnet-4-6") is None
+
+    def test_config_lead_model_default_is_sonnet_and_validated(self) -> None:
+        from nostr_merchant.config import AgentConfig
+
+        cfg = AgentConfig(_env_file=None)
+        assert cfg.NOSTR_MERCHANT_LEAD_MODEL == "anthropic:claude-sonnet-4-6"

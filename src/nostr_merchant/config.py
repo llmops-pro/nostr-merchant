@@ -194,10 +194,16 @@ class AgentConfig(BaseSettings):
     # NOSTR root) appends its NDJSON queue. `inbox --from-queue` consumes it instead of
     # re-querying relays. The consumption offset lives next to it at `<path>.offset`.
     NOSTR_MERCHANT_SCOUT_QUEUE_PATH: Path = Field(default_factory=_default_scout_queue_path)
+    # Drafting-quality floor for scouted leads. Cold joins are reputation-sensitive and the
+    # cheap agent-loop model has produced fabricated specifics (2026-07-04: an invented
+    # "exponential backoff" claim posted publicly). When the inbox batch contains lead items
+    # and no explicit --model override was given, drafting uses this model instead of
+    # NOSTR_MERCHANT_MODEL.
+    NOSTR_MERCHANT_LEAD_MODEL: str = Field(default="anthropic:claude-sonnet-4-6")
 
     # ---- Validators ----
 
-    @field_validator("NOSTR_MERCHANT_MODEL")
+    @field_validator("NOSTR_MERCHANT_MODEL", "NOSTR_MERCHANT_LEAD_MODEL")
     @classmethod
     def _validate_model_string(cls, v: str) -> str:
         return validate_model_string(v)

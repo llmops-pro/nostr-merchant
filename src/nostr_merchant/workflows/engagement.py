@@ -507,6 +507,21 @@ async def _gather(
         return len(my_posts), items[:limit]
 
 
+def drafting_model_override(
+    items: list[InboxItem],
+    explicit_override: str | None,
+    lead_model: str,
+) -> str | None:
+    """Pick the drafting model: an explicit --model always wins; otherwise a batch that
+    contains scouted leads is escalated to the (stronger) lead model — cold joins are
+    reputation-sensitive, and the cheap loop model has fabricated specifics before."""
+    if explicit_override is not None:
+        return explicit_override
+    if any(it.relation == "lead" for it in items):
+        return lead_model
+    return None
+
+
 async def _draft(
     items: list[InboxItem],
     config: AgentConfig,
@@ -683,8 +698,12 @@ async def run_inbox(
         await audit.record_llm_call(outcome="ok", input={"since_hours": since_hours}, result={"items": 0})
         return InboxResult(queue, [], items_by_id, since_hours, my_post_count, 0, queue_consumed_lines)
 
+    effective_model = drafting_model_override(items, model_override, config.NOSTR_MERCHANT_LEAD_MODEL)
+    if effective_model is not None and model_override is None and on_progress is not None:
+        on_progress(f"lead item(s) in batch → drafting escalated to {effective_model}")
+
     try:
-        drafts = await _draft(items, config, model_override)
+        drafts = await _draft(items, config, effective_model)
         await audit.record_llm_call(outcome="ok", input={"items": len(items)}, result={"drafts": len(drafts)})
     except Exception as err:
         await audit.record_llm_call(outcome="error", input={"items": len(items)}, error=f"{type(err).__name__}: {err}")
