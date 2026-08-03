@@ -64,6 +64,14 @@ when we add real value from direct experience (answer their technical question, 
 receipt or finding). Never pitch products in a cold join; being useful IS the marketing.
 Skipping is the default for anything we'd merely be commenting on.
 
+# Zaps (items marked "zapped ... on one of my notes")
+A real zap is a real person voting for the work with sats — bot-declared zappers never reach this
+queue (scout-watcher filters them before they arrive here). A zap WITH a comment is worth a short,
+genuine thank-you that engages with what they actually said — never a bare "thanks for the zap!"
+with nothing else. A silent zap (no comment, `they said:` is empty) is still worth a brief,
+specific acknowledgment if there's something real to say about it (what they zapped, why it might
+resonate); skip is fine if you'd genuinely have nothing more than "thanks."
+
 Copy each item's event_id EXACTLY into your result.
 """
 
@@ -91,15 +99,20 @@ class DraftQueue(BaseModel):
 
 @dataclass
 class InboxItem:
-    """One open inbound item (a reply to my post, or a mention of me)."""
+    """One open inbound item (a reply to my post, a mention of me, or a zap on one of my notes)."""
 
     event_id: str
     author: str  # short, for display
     author_pubkey: str  # full hex — needed to tag the parent author on a reply
     content: str
     created_at: int
-    relation: str  # "reply" | "mention"
+    relation: str  # "reply" | "mention" | "lead" | "zap"
     on_post_excerpt: str
+    # Set only for relation="zap": event_id above is the zap RECEIPT's own id (unique per
+    # zap, what the LLM must copy back); reply_target is the actual note to reply to (the one
+    # that was zapped). None means "reply to event_id itself" — today's behavior for everything
+    # else.
+    reply_target: str | None = None
 
 
 @dataclass
@@ -277,8 +290,12 @@ def items_from_scout_queue(
     notes are triaged (kind-6 reposts have no reply surface — they're briefing signal, not
     inbox items; they still count as examined). Already-replied ids and duplicates are
     dropped. Entries the topic scout queued as `type: "lead"` become relation="lead"
-    (cold joins — the draft prompt holds them to a higher bar); everything else is a
-    "mention" (the scout doesn't know which of our posts a note replies to).
+    (cold joins — the draft prompt holds them to a higher bar); `type: "zap"` entries become
+    relation="zap" (a real zap-with-comment is worth a thank-you) UNLESS the zapper is a
+    self-declared bot (`is_bot`, checked once by scout-watcher against the zapper's profile)
+    or the zap has no repliable target (`zapped_event` missing — e.g. a profile zap) — both
+    are examined (consumed) but not turned into a draftable item, same as kind-6 reposts.
+    Everything else is a "mention" (the scout doesn't know which of our posts a note replies to).
     """
     seen: set[str] = set()
     items: list[InboxItem] = []
@@ -289,6 +306,35 @@ def items_from_scout_queue(
         consumed_through = lineno + 1
         eid = rec.get("id")
         if not isinstance(eid, str) or not eid or eid in seen or eid in answered:
+            continue
+        if rec.get("type") == "zap":
+            if rec.get("is_bot"):
+                continue  # self-declared bot — examined, not triaged
+            zapped_event = rec.get("zapped_event")
+            if not isinstance(zapped_event, str) or not zapped_event:
+                continue  # no repliable target — examined, not triaged
+            seen.add(eid)
+            author = str(rec.get("author", ""))
+            try:
+                created = int(rec.get("created_at", 0) or 0)
+            except (TypeError, ValueError):
+                created = 0
+            try:
+                sats = int(rec.get("sats", 0) or 0)
+            except (TypeError, ValueError):
+                sats = 0
+            items.append(
+                InboxItem(
+                    event_id=eid,
+                    author=author[:12],
+                    author_pubkey=author,
+                    content=str(rec.get("content") or "")[:400],
+                    created_at=created,
+                    relation="zap",
+                    on_post_excerpt=f"{sats} sats",
+                    reply_target=zapped_event,
+                ),
+            )
             continue
         if rec.get("kind") != NOTE_KIND:
             continue
@@ -539,6 +585,8 @@ async def _draft(
             ctx = f"reply on my post: “{it.on_post_excerpt}…”"
         elif it.relation == "lead":
             ctx = f"scouted lead — cold join ({it.on_post_excerpt})"
+        elif it.relation == "zap":
+            ctx = f"zapped {it.on_post_excerpt} on one of my notes"
         else:
             ctx = "mention of me"
         blocks.append(
@@ -563,6 +611,8 @@ def render_queue(items_by_id: dict[str, InboxItem], drafts: list[DraftedReply]) 
             ctx = f"reply on “{it.on_post_excerpt}…”"
         elif it.relation == "lead":
             ctx = f"lead ({it.on_post_excerpt})" if it.on_post_excerpt else "lead"
+        elif it.relation == "zap":
+            ctx = f"zap ({it.on_post_excerpt})"
         else:
             ctx = "mention"
         head = f"{n}. from {it.author}… · {ctx} · event {d.event_id[:12]}…"

@@ -280,9 +280,16 @@ def inbox(
     approved_meta: dict[str, dict[str, object]] = {}
     for i, d in enumerate(drafts, 1):
         it = result.items_by_id[d.event_id]
+        # For zap items, event_id is the zap RECEIPT's own id (unique, what the LLM copied
+        # back) but the actual NIP-10 reply must target the note that was zapped.
+        post_target = it.reply_target or d.event_id
+        target_line = (
+            f"[dim]→ replying to note {post_target[:16]}…[/dim]\n" if it.reply_target else ""
+        )
         console.print(
             Panel(
-                f"[dim]from {it.author}… · {it.relation} · event {d.event_id[:16]}…[/dim]\n\n"
+                f"[dim]from {it.author}… · {it.relation} · event {d.event_id[:16]}…[/dim]\n"
+                f"{target_line}\n"
                 f"[bold]they said:[/bold] {it.content[:240]}\n\n"
                 f"[green]draft:[/green] {d.text}",
                 title=f"review {i}/{len(drafts)}",
@@ -300,13 +307,13 @@ def inbox(
             "in_reply_to_excerpt": it.content,
         }
         if choice == "p":
-            approved.append((d.event_id, it.author_pubkey, d.text))
-            approved_meta[d.event_id] = {**base, "reply_text": d.text}
+            approved.append((post_target, it.author_pubkey, d.text))
+            approved_meta[post_target] = {**base, "reply_text": d.text}
         elif choice == "e":
             edited = typer.prompt("  your reply", default=d.text)
             if edited.strip():
-                approved.append((d.event_id, it.author_pubkey, edited))
-                approved_meta[d.event_id] = {**base, "reply_text": edited}
+                approved.append((post_target, it.author_pubkey, edited))
+                approved_meta[post_target] = {**base, "reply_text": edited}
 
     if not approved:
         console.print("[yellow]Nothing approved — nothing posted.[/yellow]")

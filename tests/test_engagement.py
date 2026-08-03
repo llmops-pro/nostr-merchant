@@ -98,6 +98,23 @@ class TestStructuredDrafts:
         assert "SKIP: spam" in out
         assert "1 drafted · 1 skipped" in out
 
+    def test_render_queue_shows_zap_context(self) -> None:
+        items = {
+            "zap1": InboxItem(
+                event_id="zap1",
+                author="zapper1",
+                author_pubkey="zapper1-full-hex",
+                content="zap zap!",
+                created_at=1,
+                relation="zap",
+                on_post_excerpt="21 sats",
+                reply_target="noteid" * 8,
+            ),
+        }
+        drafts = [DraftedReply(event_id="zap1", action="draft", text="appreciate it")]
+        out = render_queue(items, drafts)
+        assert "zap (21 sats)" in out
+
 
 class TestRepliedLedger:
     """The persistent ledger makes dedup survive the --since window and relay flakiness."""
@@ -319,6 +336,70 @@ class TestScoutQueue:
         assert by_id["e8"].relation == "mention"
         assert by_id["e9"].relation == "lead"
         assert by_id["e9"].on_post_excerpt == "topics: L402, x402"
+
+    @staticmethod
+    def _zap_entry(
+        eid: str,
+        *,
+        created: int = 100,
+        author: str = "z" * 64,
+        sats: int = 21,
+        zapped_event: str | None = "n" * 64,
+        comment: str = "",
+        is_bot: bool = False,
+    ) -> str:
+        return json.dumps(
+            {
+                "seen_at": "2026-08-03T12:00:00Z",
+                "type": "zap",
+                "id": eid,
+                "kind": 9735,
+                "created_at": created,
+                "author": author,
+                "content": comment,
+                "sats": sats,
+                "zapped_event": zapped_event,
+                "is_bot": is_bot,
+            },
+        )
+
+    def test_zap_with_target_becomes_zap_relation_with_reply_target(self) -> None:
+        numbered = [(0, json.loads(self._zap_entry("zap1", sats=21, comment="zap zap!")))]
+        items, consumed = items_from_scout_queue(numbered, answered=set(), limit=20, offset=0)
+        assert consumed == 1
+        assert len(items) == 1
+        it = items[0]
+        assert it.event_id == "zap1"
+        assert it.relation == "zap"
+        assert it.reply_target == "n" * 64
+        assert it.author_pubkey == "z" * 64
+        assert it.content == "zap zap!"
+        assert it.on_post_excerpt == "21 sats"
+
+    def test_bot_zap_is_examined_not_triaged(self) -> None:
+        numbered = [(0, json.loads(self._zap_entry("zap1", is_bot=True)))]
+        items, consumed = items_from_scout_queue(numbered, answered=set(), limit=20, offset=0)
+        assert items == []
+        assert consumed == 1  # still examined — offset advances past it
+
+    def test_zap_without_target_event_is_examined_not_triaged(self) -> None:
+        numbered = [(0, json.loads(self._zap_entry("zap1", zapped_event=None)))]
+        items, consumed = items_from_scout_queue(numbered, answered=set(), limit=20, offset=0)
+        assert items == []
+        assert consumed == 1
+
+    def test_zap_and_mention_dont_collide_on_event_id(self) -> None:
+        """Zap items key off the receipt id, not the zapped note — two zaps on the same
+        note from different zappers must both survive (not dedupe as if they were the same
+        inbound item)."""
+        numbered = [
+            (0, json.loads(self._zap_entry("zap1", author="a" * 64, zapped_event="n" * 64))),
+            (1, json.loads(self._zap_entry("zap2", author="b" * 64, zapped_event="n" * 64))),
+        ]
+        items, consumed = items_from_scout_queue(numbered, answered=set(), limit=20, offset=0)
+        assert [i.event_id for i in items] == ["zap1", "zap2"]
+        assert [i.author_pubkey for i in items] == ["a" * 64, "b" * 64]
+        assert consumed == 2
 
 
 class TestLeadModelEscalation:
