@@ -30,6 +30,7 @@ from .workflows.engagement import (
     _post_replies,
     append_outreach_ledger,
     build_inbox_ledger_entry,
+    earliest_failed_lineno,
     run_inbox,
     save_scout_offset,
 )
@@ -178,7 +179,8 @@ def inbox(
             help="Gather from scout-watcher's queue (~/.nostr-merchant/scout-queue.ndjson) "
             "instead of querying relays. Faster, complete since the last consumed offset, and "
             "immune to stale relay pools; --since is ignored. A completed --post session "
-            "advances the offset; read-only runs never consume.",
+            "advances the offset; read-only runs never consume. If an approved reply fails to "
+            "publish, the offset holds back to that item so it resurfaces next run.",
         ),
     ] = False,
 ) -> None:
@@ -214,13 +216,26 @@ def inbox(
         ),
     )
 
-    def consume_queue() -> None:
-        """Advance the scout-queue offset past everything examined this session."""
+    def consume_queue(cap: int | None = None) -> None:
+        """Advance the scout-queue offset past everything examined this session.
+
+        `cap`, if given, holds the offset back to that line instead of the full
+        `queue_consumed_lines` — used when some approved replies failed to publish, so those
+        items resurface on the next `--from-queue` run instead of being silently treated as
+        handled. `cap` is always >= the offset this session started from, so this never moves
+        the stored offset backward past where it already was.
+        """
         if from_queue and result.queue_consumed_lines is not None:
-            save_scout_offset(config.NOSTR_MERCHANT_SCOUT_QUEUE_PATH, result.queue_consumed_lines)
-            console.print(
-                f"[dim]scout-queue offset advanced to {result.queue_consumed_lines}[/dim]",
+            new_offset = (
+                result.queue_consumed_lines if cap is None else min(cap, result.queue_consumed_lines)
             )
+            save_scout_offset(config.NOSTR_MERCHANT_SCOUT_QUEUE_PATH, new_offset)
+            console.print(f"[dim]scout-queue offset advanced to {new_offset}[/dim]")
+            if cap is not None and cap < result.queue_consumed_lines:
+                console.print(
+                    "[yellow]Held back — some approved replies failed to publish; "
+                    "they'll resurface on the next --from-queue run.[/yellow]",
+                )
 
     try:
         result = asyncio.run(
@@ -278,6 +293,10 @@ def inbox(
     # reply_to (inbound event id) -> {to, business_relevant, reply_text, in_reply_to_excerpt}
     # for the optional ledger auto-log.
     approved_meta: dict[str, dict[str, object]] = {}
+    # Parallel to `approved` (same order, same length) — the originating scout-queue line for
+    # each approved item, or None for relay-gathered items. Used to hold the offset back if the
+    # publish fails; see consume_queue().
+    approved_linenos: list[int | None] = []
     for i, d in enumerate(drafts, 1):
         it = result.items_by_id[d.event_id]
         # For zap items, event_id is the zap RECEIPT's own id (unique, what the LLM copied
@@ -309,11 +328,13 @@ def inbox(
         if choice == "p":
             approved.append((post_target, it.author_pubkey, d.text))
             approved_meta[post_target] = {**base, "reply_text": d.text}
+            approved_linenos.append(it.lineno)
         elif choice == "e":
             edited = typer.prompt("  your reply", default=d.text)
             if edited.strip():
                 approved.append((post_target, it.author_pubkey, edited))
                 approved_meta[post_target] = {**base, "reply_text": edited}
+                approved_linenos.append(it.lineno)
 
     if not approved:
         console.print("[yellow]Nothing approved — nothing posted.[/yellow]")
@@ -358,6 +379,8 @@ def inbox(
     console.print(table)
     console.print(f"[dim]{published}/{len(post_results)} published · audit: {config.AGENT_AUDIT_PATH}[/dim]")
 
+    held_offset = earliest_failed_lineno(post_results, approved_linenos) if from_queue else None
+
     # Optional: auto-append a one-entry-per-session summary to the outreach ledger (facts only;
     # Claude Code / the operator annotate the business-relevant ones). Opt-in via config.
     if config.NOSTR_MERCHANT_LEDGER_PATH is not None and published > 0:
@@ -387,9 +410,10 @@ def inbox(
             console.print(f"[dim]{status}[/dim]")
 
     # A fully-reviewed --post session consumes the examined queue lines; quitting mid-review
-    # leaves the offset so unreviewed items resurface next run.
+    # leaves the offset so unreviewed items resurface next run. held_offset (if set) further
+    # caps that at the earliest approved-but-failed-to-publish item.
     if not quit_early:
-        consume_queue()
+        consume_queue(held_offset)
 
 
 @app.command()

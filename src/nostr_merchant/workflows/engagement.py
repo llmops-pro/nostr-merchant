@@ -113,6 +113,10 @@ class InboxItem:
     # that was zapped). None means "reply to event_id itself" — today's behavior for everything
     # else.
     reply_target: str | None = None
+    # Set only for --from-queue items: the scout-queue line this came from. Lets the CLI hold
+    # the consumption offset back to just before an approved-but-failed-to-publish item instead
+    # of consuming past it — None for relay-gathered items, where there is no queue offset.
+    lineno: int | None = None
 
 
 @dataclass
@@ -333,6 +337,7 @@ def items_from_scout_queue(
                     relation="zap",
                     on_post_excerpt=f"{sats} sats",
                     reply_target=zapped_event,
+                    lineno=lineno,
                 ),
             )
             continue
@@ -359,9 +364,27 @@ def items_from_scout_queue(
                 created_at=created,
                 relation="lead" if is_lead else "mention",
                 on_post_excerpt=excerpt,
+                lineno=lineno,
             ),
         )
     return items, consumed_through
+
+
+def earliest_failed_lineno(
+    post_results: list[dict[str, Any]],
+    linenos: list[int | None],
+) -> int | None:
+    """The earliest scout-queue line among approved items whose publish failed.
+
+    `post_results` and `linenos` must be the same length and in the same order as the
+    `approved` list passed to `_post_replies` (`_post_replies` iterates `approved` in order,
+    appending exactly one result per item — even on exception — so this pairing always holds).
+    Used by the CLI to hold the consumption offset back so a failed item resurfaces on the
+    next `--from-queue` run instead of being silently treated as handled. Returns None if
+    nothing failed, or if every failure was a relay-gathered item (lineno=None).
+    """
+    failed = [ln for r, ln in zip(post_results, linenos, strict=True) if not r.get("ok") and ln is not None]
+    return min(failed) if failed else None
 
 
 def build_inbox_ledger_entry(*, model: str, posted: list[dict[str, Any]]) -> dict[str, Any]:

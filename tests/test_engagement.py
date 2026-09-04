@@ -20,6 +20,7 @@ from nostr_merchant.workflows.engagement import (
     append_replied_ledger,
     build_inbox_ledger_entry,
     drafting_model_override,
+    earliest_failed_lineno,
     items_from_scout_queue,
     load_replied_ledger,
     load_scout_offset,
@@ -400,6 +401,49 @@ class TestScoutQueue:
         assert [i.event_id for i in items] == ["zap1", "zap2"]
         assert [i.author_pubkey for i in items] == ["a" * 64, "b" * 64]
         assert consumed == 2
+
+    def test_items_carry_their_source_lineno(self) -> None:
+        """Each item remembers which scout-queue line it came from — needed to hold the
+        consumption offset back if its reply later fails to publish."""
+        numbered = [
+            (5, json.loads(self._entry("e1"))),
+            (6, json.loads(self._zap_entry("zap1"))),
+            (7, json.loads(self._entry("e2"))),
+        ]
+        items, _ = items_from_scout_queue(numbered, answered=set(), limit=20, offset=5)
+        by_id = {i.event_id: i.lineno for i in items}
+        assert by_id == {"e1": 5, "zap1": 6, "e2": 7}
+
+
+class TestEarliestFailedLineno:
+    """Holds the scout-queue offset back to the earliest approved-but-failed-to-publish item,
+    instead of consuming past it — so it resurfaces on the next --from-queue run."""
+
+    def test_no_failures_returns_none(self) -> None:
+        results = [{"ok": True}, {"ok": True}]
+        assert earliest_failed_lineno(results, [3, 4]) is None
+
+    def test_single_failure_returns_its_lineno(self) -> None:
+        results = [{"ok": True}, {"ok": False}]
+        assert earliest_failed_lineno(results, [3, 4]) == 4
+
+    def test_multiple_failures_returns_earliest(self) -> None:
+        results = [{"ok": False}, {"ok": True}, {"ok": False}]
+        assert earliest_failed_lineno(results, [10, 11, 3]) == 3
+
+    def test_relay_gathered_failure_has_no_lineno_and_is_ignored(self) -> None:
+        # from_queue=False items carry lineno=None — a failure there can't hold anything back.
+        results = [{"ok": False}]
+        assert earliest_failed_lineno(results, [None]) is None
+
+    def test_mixed_none_and_real_linenos(self) -> None:
+        results = [{"ok": False}, {"ok": False}]
+        assert earliest_failed_lineno(results, [None, 7]) == 7
+
+    def test_missing_ok_key_treated_as_failure(self) -> None:
+        # _post_replies always sets "ok", but the helper should fail safe (hold back) if not.
+        results: list[dict[str, object]] = [{}]
+        assert earliest_failed_lineno(results, [9]) == 9
 
 
 class TestLeadModelEscalation:
