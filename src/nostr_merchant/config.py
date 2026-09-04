@@ -68,6 +68,10 @@ def _default_scout_queue_path() -> Path:
     return Path.home() / ".nostr-merchant" / "scout-queue.ndjson"
 
 
+def _default_self_pubkey_path() -> Path:
+    return Path.home() / ".nostr-merchant" / "self-pubkey.txt"
+
+
 class AgentConfig(BaseSettings):
     """All env-driven config for nostr-merchant.
 
@@ -200,6 +204,19 @@ class AgentConfig(BaseSettings):
     # and no explicit --model override was given, drafting uses this model instead of
     # NOSTR_MERCHANT_MODEL.
     NOSTR_MERCHANT_LEAD_MODEL: str = Field(default="anthropic:claude-sonnet-4-6")
+    # Cap on how many of the agent's own recent posts the relay-based `inbox` path fetches
+    # when looking for replies/mentions. A reply targeting a post older than this cutoff
+    # never surfaces, regardless of --since — the relay query's own `since` bound doesn't
+    # help once the post COUNT exceeds this limit, since relays cap results by count, not
+    # just by time. Raise this if you post more often than the default within your usual
+    # --since window.
+    AGENT_MY_POSTS_LIMIT: int = Field(default=100, ge=1)
+    # Cache of the agent's own pubkey (hex), written by a relay-based `inbox` run the first
+    # time it calls nostr_get_pubkey. Lets --from-queue filter out scout-queue entries
+    # authored by us (see engagement.py's items_from_scout_queue `self_pubkey` param)
+    # without spawning an MCP server just to ask for our own identity. Safe to delete —
+    # it's just repopulated on the next relay-based run.
+    AGENT_SELF_PUBKEY_PATH: Path = Field(default_factory=_default_self_pubkey_path)
 
     # ---- Validators ----
 

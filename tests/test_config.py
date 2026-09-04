@@ -240,3 +240,24 @@ class TestApplyProviderEnv:
         cfg = make()  # no provider keys set
         cfg.apply_provider_env()
         assert "OPENAI_API_KEY" not in os.environ
+
+
+class TestMyPostsLimit:
+    """A reply targeting a post older than this cutoff never surfaces via the relay-based
+    `inbox` path, regardless of --since — this must stay configurable (raisable) rather
+    than a silent hardcoded ceiling."""
+
+    def test_default(self) -> None:
+        assert make().AGENT_MY_POSTS_LIMIT == 100
+
+    def test_override(self) -> None:
+        assert make(AGENT_MY_POSTS_LIMIT=250).AGENT_MY_POSTS_LIMIT == 250
+
+    def test_must_be_positive(self) -> None:
+        with pytest.raises(ValidationError):
+            make(AGENT_MY_POSTS_LIMIT=0)
+
+
+class TestSelfPubkeyPathDefault:
+    def test_default_path(self) -> None:
+        assert make().AGENT_SELF_PUBKEY_PATH.name == "self-pubkey.txt"

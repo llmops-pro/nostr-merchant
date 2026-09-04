@@ -228,6 +228,31 @@ def append_replied_ledger(path: Path, event_ids: Iterable[str]) -> None:
         pass  # the relay-derived `answered` set still covers the in-window case
 
 
+def load_cached_self_pubkey(path: Path) -> str | None:
+    """Read the cached self-pubkey (written by a relay-based `_gather` run).
+
+    Lets the `--from-queue` path filter out scout-queue entries authored by us (see
+    `items_from_scout_queue`'s `self_pubkey` param) without spawning an MCP server just to
+    ask for our own identity. Missing/corrupt/empty file -> None — the filter simply
+    doesn't apply yet, which matches behavior from before this cache existed (safe, not a
+    regression), e.g. on a totally fresh install that has never run a relay-based `inbox`.
+    """
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, OSError):
+        return None
+    return text or None
+
+
+def save_cached_self_pubkey(path: Path, pubkey: str) -> None:
+    """Best-effort cache write; IO failure never breaks a gather run."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(pubkey + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def scout_offset_path(queue_path: Path) -> Path:
     """The consumption-offset file that lives next to the scout queue."""
     return queue_path.with_name(queue_path.name + ".offset")
@@ -285,6 +310,7 @@ def items_from_scout_queue(
     answered: set[str],
     limit: int,
     offset: int,
+    self_pubkey: str | None = None,
 ) -> tuple[list[InboxItem], int]:
     """Convert scout-queue entries into inbox items, in file (≈chronological) order.
 
@@ -293,13 +319,19 @@ def items_from_scout_queue(
     when `limit` is hit — unexamined lines beyond it are never skipped over. Only kind-1
     notes are triaged (kind-6 reposts have no reply surface — they're briefing signal, not
     inbox items; they still count as examined). Already-replied ids and duplicates are
-    dropped. Entries the topic scout queued as `type: "lead"` become relation="lead"
-    (cold joins — the draft prompt holds them to a higher bar); `type: "zap"` entries become
-    relation="zap" (a real zap-with-comment is worth a thank-you) UNLESS the zapper is a
-    self-declared bot (`is_bot`, checked once by scout-watcher against the zapper's profile)
-    or the zap has no repliable target (`zapped_event` missing — e.g. a profile zap) — both
-    are examined (consumed) but not turned into a draftable item, same as kind-6 reposts.
-    Everything else is a "mention" (the scout doesn't know which of our posts a note replies to).
+    dropped. `self_pubkey`, when known, drops entries authored by us too (examined, not
+    triaged) — scout-watcher's queue has no self-authorship filter of its own, unlike the
+    relay-gathered path (`_gather` excludes `pubkey == mypub` directly), so without this an
+    agent can end up drafting a reply to its own note. `self_pubkey` is None until a
+    relay-based `inbox` run has cached it (see `load_cached_self_pubkey`) — the filter
+    simply doesn't apply yet in that case, matching prior behavior. Entries the topic scout
+    queued as `type: "lead"` become relation="lead" (cold joins — the draft prompt holds
+    them to a higher bar); `type: "zap"` entries become relation="zap" (a real
+    zap-with-comment is worth a thank-you) UNLESS the zapper is a self-declared bot
+    (`is_bot`, checked once by scout-watcher against the zapper's profile) or the zap has no
+    repliable target (`zapped_event` missing — e.g. a profile zap) — both are examined
+    (consumed) but not turned into a draftable item, same as kind-6 reposts. Everything else
+    is a "mention" (the scout doesn't know which of our posts a note replies to).
     """
     seen: set[str] = set()
     items: list[InboxItem] = []
@@ -311,6 +343,8 @@ def items_from_scout_queue(
         eid = rec.get("id")
         if not isinstance(eid, str) or not eid or eid in seen or eid in answered:
             continue
+        if self_pubkey is not None and rec.get("author") == self_pubkey:
+            continue  # our own note or zap — examined, never a valid reply target
         if rec.get("type") == "zap":
             if rec.get("is_bot"):
                 continue  # self-declared bot — examined, not triaged
@@ -510,10 +544,13 @@ async def _gather(
             msg = "nostr_get_pubkey returned no pubkey_hex — is a signer configured in nostr-ops-mcp/.env?"
             raise RuntimeError(msg)
         report(f"identified as {mypub[:12]}… · querying")
+        # Cache it so --from-queue can filter self-authored scout-queue entries without
+        # spawning an MCP server (see items_from_scout_queue's self_pubkey param).
+        save_cached_self_pubkey(config.AGENT_SELF_PUBKEY_PATH, mypub)
 
         my_posts = await query(
             "my recent posts",
-            {"authors": [mypub], "kinds": MY_KINDS, "since": since_ts, "limit": 25},
+            {"authors": [mypub], "kinds": MY_KINDS, "since": since_ts, "limit": config.AGENT_MY_POSTS_LIMIT},
         )
         post_by_id = {p["id"]: p for p in my_posts if isinstance(p.get("id"), str)}
 
@@ -734,8 +771,11 @@ async def run_inbox(
         numbered = read_scout_queue(qpath, offset=offset)
         report(f"scout queue: {len(numbered)} new entr(ies) beyond offset {offset}")
         answered = load_replied_ledger(config.AGENT_REPLIED_PATH)
+        self_pubkey = load_cached_self_pubkey(config.AGENT_SELF_PUBKEY_PATH)
+        if self_pubkey is None:
+            report("self-pubkey not cached yet (run a relay-based `inbox` once) — can't filter self-authored items this run")
         items, queue_consumed_lines = items_from_scout_queue(
-            numbered, answered=answered, limit=limit, offset=offset,
+            numbered, answered=answered, limit=limit, offset=offset, self_pubkey=self_pubkey,
         )
         my_post_count = 0
     else:

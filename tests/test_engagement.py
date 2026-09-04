@@ -22,10 +22,12 @@ from nostr_merchant.workflows.engagement import (
     drafting_model_override,
     earliest_failed_lineno,
     items_from_scout_queue,
+    load_cached_self_pubkey,
     load_replied_ledger,
     load_scout_offset,
     read_scout_queue,
     render_queue,
+    save_cached_self_pubkey,
     save_scout_offset,
     scout_offset_path,
 )
@@ -413,6 +415,61 @@ class TestScoutQueue:
         items, _ = items_from_scout_queue(numbered, answered=set(), limit=20, offset=5)
         by_id = {i.event_id: i.lineno for i in items}
         assert by_id == {"e1": 5, "zap1": 6, "e2": 7}
+
+    def test_self_authored_note_is_examined_not_triaged(self) -> None:
+        """The scout-queue has no self-authorship filter of its own (unlike _gather, which
+        excludes pubkey == mypub directly) — items_from_scout_queue must do it instead, or
+        the agent can end up drafting a reply to its own note."""
+        me = "m" * 64
+        numbered = [
+            (0, json.loads(self._entry("e1", author=me))),
+            (1, json.loads(self._entry("e2", author="other" + "b" * 59))),
+        ]
+        items, consumed = items_from_scout_queue(
+            numbered, answered=set(), limit=20, offset=0, self_pubkey=me,
+        )
+        assert [i.event_id for i in items] == ["e2"]
+        assert consumed == 2  # still examined — offset advances past it
+
+    def test_self_zap_is_examined_not_triaged(self) -> None:
+        me = "m" * 64
+        numbered = [(0, json.loads(self._zap_entry("zap1", author=me)))]
+        items, consumed = items_from_scout_queue(
+            numbered, answered=set(), limit=20, offset=0, self_pubkey=me,
+        )
+        assert items == []
+        assert consumed == 1
+
+    def test_self_pubkey_none_does_not_filter(self) -> None:
+        """Backward-compat default: before any relay-based run has cached a self-pubkey,
+        the filter is simply inactive rather than blocking everything."""
+        me = "m" * 64
+        numbered = [(0, json.loads(self._entry("e1", author=me)))]
+        items, _ = items_from_scout_queue(numbered, answered=set(), limit=20, offset=0)
+        assert [i.event_id for i in items] == ["e1"]
+
+
+class TestSelfPubkeyCache:
+    """Caches the agent's own pubkey so --from-queue can filter self-authored scout-queue
+    entries without spawning an MCP server just to ask for our own identity."""
+
+    def test_missing_file_is_none(self, tmp_path: Path) -> None:
+        assert load_cached_self_pubkey(tmp_path / "self-pubkey.txt") is None
+
+    def test_roundtrip(self, tmp_path: Path) -> None:
+        p = tmp_path / "self-pubkey.txt"
+        save_cached_self_pubkey(p, "a" * 64)
+        assert load_cached_self_pubkey(p) == "a" * 64
+
+    def test_empty_file_is_none(self, tmp_path: Path) -> None:
+        p = tmp_path / "self-pubkey.txt"
+        p.write_text("   \n", encoding="utf-8")
+        assert load_cached_self_pubkey(p) is None
+
+    def test_write_creates_parent_dir(self, tmp_path: Path) -> None:
+        p = tmp_path / "nested" / "self-pubkey.txt"
+        save_cached_self_pubkey(p, "b" * 64)
+        assert load_cached_self_pubkey(p) == "b" * 64
 
 
 class TestEarliestFailedLineno:
