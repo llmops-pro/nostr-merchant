@@ -1837,9 +1837,10 @@ wheels = [
 
 [[package]]
 name = "nostr-merchant"
-version = "0.5.1"
+version = "0.5.2"
 source = { editable = "." }
 dependencies = [
+    { name = "mcp" },
     { name = "pydantic-ai" },
     { name = "pydantic-settings" },
     { name = "typer" },
@@ -1855,6 +1856,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "mcp", specifier = "<2" },
     { name = "pydantic-ai", specifier = ">=1.0,<2" },
     { name = "pydantic-settings", specifier = ">=2.4.0" },
     { name = "typer", specifier = ">=0.12.0" },

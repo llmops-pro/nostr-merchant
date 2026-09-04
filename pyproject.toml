@@ -1,6 +1,6 @@
 [project]
 name = "nostr-merchant"
-version = "0.5.1"
+version = "0.5.2"
 description = "A local-first AI agent that runs a business on NOSTR: checks its Lightning wallet, publishes notes and listings, answers encrypted DMs, and pays for paywalled MCP tools over NWC — all under sats budget caps it can't exceed. Drives six MCP servers (nwc-mcp, nostr-ops-mcp, marketplace-mcp, albyhub-admin-mcp, paywall-mcp, l402-search-mcp). Ollama-first, API-pluggable. Built on pydantic-ai — no LangChain. MIT."
 readme = "README.md"
 license = "MIT"
@@ -39,6 +39,14 @@ dependencies = [
     # Pin to the v1 line: the agent uses v1 APIs (pydantic_ai.mcp.MCPServerStdio,
     # the process_tool_call hook), and v2 renames MCPServerStdio -> MCPToolset.
     "pydantic-ai>=1.0,<2",
+    # `mcp` is only a TRANSITIVE dependency (pydantic-ai's `[mcp]` extra -> fastmcp-slim ->
+    # mcp), and nothing in that chain caps it below 2.x. mcp 2.0 moved
+    # `RequestContext` out of `mcp.shared.context`, breaking pydantic_ai.mcp's own import
+    # of it (confirmed: `pip install nostr-merchant` with no pin resolves mcp==2.1.1 and the
+    # CLI crashes on startup). Same class of issue as ComplianceGxP's mcp<2 pin. Direct pin
+    # here forces the resolver to stay on the compatible 1.x line regardless of what other
+    # packages in the graph request.
+    "mcp<2",
     # CLI. typer brings click underneath; rich auto-installed.
     "typer>=0.12.0",
     # Settings/env management. Sits alongside pydantic-ai's bundled pydantic v2.
